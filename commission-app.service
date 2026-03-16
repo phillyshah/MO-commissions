@@ -1,0 +1,14 @@
+[Unit]
+Description=Maxx Commission Statement Generator
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/commission-app
+ExecStart=/opt/commission-app/venv/bin/gunicorn -c gunicorn.conf.py app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

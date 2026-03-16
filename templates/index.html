@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maxx Health — Commission Statements</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0c0f14;
+            --surface: #161a22;
+            --surface-hover: #1c2130;
+            --border: #2a2f3d;
+            --text: #e8eaf0;
+            --text-muted: #7b829a;
+            --accent: #4f8ff7;
+            --accent-glow: rgba(79, 143, 247, 0.15);
+            --success: #34d399;
+            --success-glow: rgba(52, 211, 153, 0.15);
+            --error: #f87171;
+            --radius: 12px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 560px;
+        }
+
+        .logo-area {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .logo-area img {
+            height: 52px;
+            margin-bottom: 1rem;
+            filter: brightness(0) invert(1);
+            opacity: 0.9;
+        }
+
+        .logo-area h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.35rem;
+        }
+
+        .logo-area p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 300;
+        }
+
+        /* Upload Card */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 2rem;
+        }
+
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .dropzone:hover, .dropzone.dragover {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .dropzone input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .dropzone-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.75rem;
+            opacity: 0.6;
+        }
+
+        .dropzone-text {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        .dropzone-text strong {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .file-selected {
+            display: none;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.85rem 1rem;
+            background: var(--surface-hover);
+            border-radius: 8px;
+            margin-top: 1.25rem;
+            font-size: 0.85rem;
+        }
+
+        .file-selected.show { display: flex; }
+
+        .file-selected .fname {
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-selected .fsize {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        .file-selected .remove-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 0 0.25rem;
+            transition: color 0.15s;
+        }
+
+        .file-selected .remove-btn:hover { color: var(--error); }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 0.85rem;
+            margin-top: 1.25rem;
+            border: none;
+            border-radius: 8px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #3d7de0;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Processing State */
+        .processing {
+            display: none;
+            text-align: center;
+            padding: 2rem 1rem;
+        }
+
+        .processing.show { display: block; }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1.25rem;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .processing p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .processing .step {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            opacity: 0.7;
+        }
+
+        /* Results */
+        .results {
+            display: none;
+            padding: 0.5rem 0 0;
+        }
+
+        .results.show { display: block; }
+
+        .results-header {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .results-header .check {
+            width: 28px;
+            height: 28px;
+            background: var(--success-glow);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--success);
+            font-size: 1rem;
+        }
+
+        .results-header .info h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .results-header .info p {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .download-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.85rem 1rem;
+            background: var(--surface-hover);
+            border-radius: 8px;
+            margin-bottom: 0.6rem;
+        }
+
+        .download-row .dl-info {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .download-row .dl-icon {
+            font-size: 1.3rem;
+            opacity: 0.7;
+        }
+
+        .download-row .dl-label {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .download-row .dl-desc {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+
+        .download-row a {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 0.85rem;
+            background: var(--accent);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.15s;
+        }
+
+        .download-row a:hover {
+            background: #3d7de0;
+        }
+
+        .btn-reset {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            margin-top: 1rem;
+        }
+
+        .btn-reset:hover {
+            border-color: var(--text-muted);
+            color: var(--text);
+        }
+
+        /* Error */
+        .error-msg {
+            display: none;
+            background: rgba(248, 113, 113, 0.08);
+            border: 1px solid rgba(248, 113, 113, 0.2);
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            color: var(--error);
+        }
+
+        .error-msg.show { display: block; }
+
+        footer {
+            margin-top: 2.5rem;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-align: center;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo-area">
+            <img src="/static/maxx_logo.png" alt="Maxx Health" onerror="this.style.display='none'">
+            <h1>Commission Statement Generator</h1>
+            <p>Upload a worksheet, get formatted statements + PDFs</p>
+        </div>
+
+        <div class="card">
+            <!-- Upload State -->
+            <div id="upload-area">
+                <div class="dropzone" id="dropzone">
+                    <input type="file" id="file-input" accept=".xlsx">
+                    <div class="dropzone-icon">📄</div>
+                    <div class="dropzone-text">
+                        Drop your <strong>.xlsx</strong> file here<br>
+                        or click to browse
+                    </div>
+                </div>
+
+                <div class="file-selected" id="file-info">
+                    <span class="fname" id="file-name"></span>
+                    <span class="fsize" id="file-size"></span>
+                    <button class="remove-btn" id="remove-btn" title="Remove">✕</button>
+                </div>
+
+                <button class="btn btn-primary" id="process-btn" disabled>Generate Statements</button>
+
+                <div class="error-msg" id="error-msg"></div>
+            </div>
+
+            <!-- Processing State -->
+            <div class="processing" id="processing">
+                <div class="spinner"></div>
+                <p>Generating commission statements...</p>
+                <div class="step">Parsing invoices → Building sheets → Creating PDFs</div>
+            </div>
+
+            <!-- Results State -->
+            <div class="results" id="results">
+                <div class="results-header">
+                    <div class="check">✓</div>
+                    <div class="info">
+                        <h3 id="result-title">Done!</h3>
+                        <p id="result-desc"></p>
+                    </div>
+                </div>
+
+                <div class="download-row">
+                    <div class="dl-info">
+                        <span class="dl-icon">📊</span>
+                        <div>
+                            <div class="dl-label">Excel Workbook</div>
+                            <div class="dl-desc">Summary + individual distributor tabs</div>
+                        </div>
+                    </div>
+                    <a href="#" id="dl-xlsx">↓ Download</a>
+                </div>
+
+                <div class="download-row">
+                    <div class="dl-info">
+                        <span class="dl-icon">📁</span>
+                        <div>
+                            <div class="dl-label">PDF Bundle</div>
+                            <div class="dl-desc" id="pdf-count">Individual PDFs, zipped</div>
+                        </div>
+                    </div>
+                    <a href="#" id="dl-zip">↓ Download</a>
+                </div>
+
+                <button class="btn btn-reset" id="reset-btn">Process Another File</button>
+            </div>
+        </div>
+
+        <footer>Maxx Health Inc. — Internal Tool</footer>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const fileSize = document.getElementById('file-size');
+        const removeBtn = document.getElementById('remove-btn');
+        const processBtn = document.getElementById('process-btn');
+        const uploadArea = document.getElementById('upload-area');
+        const processing = document.getElementById('processing');
+        const results = document.getElementById('results');
+        const errorMsg = document.getElementById('error-msg');
+
+        let selectedFile = null;
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        function setFile(file) {
+            if (!file || !file.name.endsWith('.xlsx')) {
+                showError('Please select an .xlsx file');
+                return;
+            }
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatBytes(file.size);
+            fileInfo.classList.add('show');
+            processBtn.disabled = false;
+            errorMsg.classList.remove('show');
+        }
+
+        function clearFile() {
+            selectedFile = null;
+            fileInput.value = '';
+            fileInfo.classList.remove('show');
+            processBtn.disabled = true;
+        }
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('show');
+        }
+
+        // Drag & drop
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) setFile(fileInput.files[0]);
+        });
+
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            clearFile();
+        });
+
+        // Process
+        processBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            uploadArea.style.display = 'none';
+            processing.classList.add('show');
+            errorMsg.classList.remove('show');
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            try {
+                const resp = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                if (data.error) {
+                    processing.classList.remove('show');
+                    uploadArea.style.display = 'block';
+                    showError(data.error);
+                    return;
+                }
+
+                // Show results
+                processing.classList.remove('show');
+                results.classList.add('show');
+
+                document.getElementById('result-title').textContent =
+                    `${data.month} ${data.year} — Complete`;
+                document.getElementById('result-desc').textContent =
+                    `${data.num_distributors} distributors · ${data.num_pdfs} PDFs generated`;
+                document.getElementById('pdf-count').textContent =
+                    `${data.num_pdfs} individual PDFs, zipped`;
+                document.getElementById('dl-xlsx').href = `/download/${data.job_id}/xlsx`;
+                document.getElementById('dl-zip').href = `/download/${data.job_id}/zip`;
+
+            } catch (err) {
+                processing.classList.remove('show');
+                uploadArea.style.display = 'block';
+                showError('Something went wrong. Please try again.');
+            }
+        });
+
+        // Reset
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            results.classList.remove('show');
+            uploadArea.style.display = 'block';
+            clearFile();
+        });
+    </script>
+</body>
+</html>
