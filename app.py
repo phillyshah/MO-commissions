@@ -300,8 +300,8 @@ def create_summary(wb, groups, lookup, commission_label):
     return ws
 
 
-def process_workbook(input_path, job_dir):
-    """Main processing: takes input xlsx, returns paths to output xlsx and zip."""
+def process_excel(input_path, job_dir):
+    """Step 1: Build the output Excel workbook. Returns xlsx path and metadata."""
     wb_src = openpyxl.load_workbook(input_path, data_only=True)
 
     # Validate required sheets
@@ -371,7 +371,33 @@ def process_workbook(input_path, job_dir):
     xlsx_path = os.path.join(job_dir, xlsx_name)
     wb_out.save(xlsx_path)
 
-    # Generate PDFs
+    return {
+        'xlsx_path': xlsx_path,
+        'xlsx_name': xlsx_name,
+        'month': month_name,
+        'year': year,
+        'num_distributors': len(groups),
+    }
+
+
+def generate_pdfs(job_dir):
+    """Step 2: Convert the Excel workbook in job_dir to PDFs and zip them."""
+    # Find the xlsx
+    xlsx_path = None
+    xlsx_name = None
+    for fname in os.listdir(job_dir):
+        if fname.endswith('.xlsx'):
+            xlsx_path = os.path.join(job_dir, fname)
+            xlsx_name = fname
+            break
+    if not xlsx_path:
+        raise ValueError("No Excel workbook found for this job.")
+
+    # Derive month/year from filename for zip name
+    zip_base = xlsx_name.replace('.xlsx', '_PDFs')
+    zip_name = f'{zip_base}.zip'
+    zip_path = os.path.join(job_dir, zip_name)
+
     skip_sheets = {'Invoice List', 'Trauma', 'Dist Lookup'}
     temp_dir = os.path.join(job_dir, 'temp_sheets')
     pdf_dir = os.path.join(job_dir, 'pdfs')
@@ -432,26 +458,21 @@ def process_workbook(input_path, job_dir):
             env={**os.environ, 'HOME': lo_home})
 
     # Zip PDFs
-    zip_name = f'Commission_Statements_{month_name}_{year}_PDFs.zip'
-    zip_path = os.path.join(job_dir, zip_name)
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for pdf in sorted(os.listdir(pdf_dir)):
             if pdf.endswith('.pdf'):
                 zf.write(os.path.join(pdf_dir, pdf), pdf)
+
+    num_pdfs = len([f for f in os.listdir(pdf_dir) if f.endswith('.pdf')])
 
     # Clean up temp
     shutil.rmtree(temp_dir, ignore_errors=True)
     shutil.rmtree(lo_home, ignore_errors=True)
 
     return {
-        'xlsx_path': xlsx_path,
-        'xlsx_name': xlsx_name,
         'zip_path': zip_path,
         'zip_name': zip_name,
-        'month': month_name,
-        'year': year,
-        'num_distributors': len(groups),
-        'num_pdfs': len([f for f in os.listdir(pdf_dir) if f.endswith('.pdf')]),
+        'num_pdfs': num_pdfs,
     }
 
 
@@ -484,19 +505,34 @@ def upload():
     file.save(input_path)
 
     try:
-        result = process_workbook(input_path, job_dir)
+        result = process_excel(input_path, job_dir)
         return jsonify({
             'success': True,
             'job_id': job_id,
             'month': result['month'],
             'year': result['year'],
             'num_distributors': result['num_distributors'],
-            'num_pdfs': result['num_pdfs'],
             'xlsx_name': result['xlsx_name'],
-            'zip_name': result['zip_name'],
         })
     except Exception as e:
         shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/generate-pdfs/<job_id>', methods=['POST'])
+def generate_pdfs_route(job_id):
+    job_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
+    if not os.path.exists(job_dir):
+        return jsonify({'error': 'Job not found'}), 404
+
+    try:
+        result = generate_pdfs(job_dir)
+        return jsonify({
+            'success': True,
+            'zip_name': result['zip_name'],
+            'num_pdfs': result['num_pdfs'],
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 

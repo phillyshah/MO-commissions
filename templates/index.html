@@ -399,7 +399,18 @@
                     <a href="#" id="dl-xlsx">↓ Download</a>
                 </div>
 
-                <div class="download-row">
+                <!-- PDF generation section -->
+                <div id="pdf-section">
+                    <button class="btn btn-primary" id="generate-pdf-btn" style="margin-top:1rem;">Generate PDFs</button>
+                </div>
+
+                <div class="processing" id="pdf-processing" style="padding:1.25rem 0;">
+                    <div class="spinner"></div>
+                    <p>Generating PDFs...</p>
+                    <div class="step">Converting sheets → Creating zip</div>
+                </div>
+
+                <div class="download-row" id="zip-row" style="display:none; margin-top:0.6rem;">
                     <div class="dl-info">
                         <span class="dl-icon">📁</span>
                         <div>
@@ -409,6 +420,8 @@
                     </div>
                     <a href="#" id="dl-zip">↓ Download</a>
                 </div>
+
+                <div class="error-msg" id="pdf-error-msg"></div>
 
                 <button class="btn btn-reset" id="reset-btn">Process Another File</button>
             </div>
@@ -484,7 +497,9 @@
             clearFile();
         });
 
-        // Process
+        let currentJobId = null;
+
+        // Process — Step 1: Excel only
         processBtn.addEventListener('click', async () => {
             if (!selectedFile) return;
 
@@ -506,18 +521,23 @@
                     return;
                 }
 
-                // Show results
+                currentJobId = data.job_id;
+
+                // Show results — Excel only
                 processing.classList.remove('show');
                 results.classList.add('show');
 
                 document.getElementById('result-title').textContent =
-                    `${data.month} ${data.year} — Complete`;
+                    `${data.month} ${data.year} — Excel Ready`;
                 document.getElementById('result-desc').textContent =
-                    `${data.num_distributors} distributors · ${data.num_pdfs} PDFs generated`;
-                document.getElementById('pdf-count').textContent =
-                    `${data.num_pdfs} individual PDFs, zipped`;
+                    `${data.num_distributors} distributors · review then generate PDFs`;
                 document.getElementById('dl-xlsx').href = `/download/${data.job_id}/xlsx`;
-                document.getElementById('dl-zip').href = `/download/${data.job_id}/zip`;
+
+                // Reset PDF section state
+                document.getElementById('pdf-section').style.display = 'block';
+                document.getElementById('pdf-processing').classList.remove('show');
+                document.getElementById('zip-row').style.display = 'none';
+                document.getElementById('pdf-error-msg').classList.remove('show');
 
             } catch (err) {
                 processing.classList.remove('show');
@@ -526,10 +546,48 @@
             }
         });
 
+        // Step 2: Generate PDFs
+        document.getElementById('generate-pdf-btn').addEventListener('click', async () => {
+            if (!currentJobId) return;
+
+            document.getElementById('pdf-section').style.display = 'none';
+            document.getElementById('pdf-processing').classList.add('show');
+            document.getElementById('pdf-error-msg').classList.remove('show');
+
+            try {
+                const resp = await fetch(`/generate-pdfs/${currentJobId}`, { method: 'POST' });
+                const data = await resp.json();
+
+                document.getElementById('pdf-processing').classList.remove('show');
+
+                if (data.error) {
+                    document.getElementById('pdf-section').style.display = 'block';
+                    document.getElementById('pdf-error-msg').textContent = data.error;
+                    document.getElementById('pdf-error-msg').classList.add('show');
+                    return;
+                }
+
+                document.getElementById('result-title').textContent =
+                    document.getElementById('result-title').textContent.replace('Excel Ready', 'Complete');
+                document.getElementById('result-desc').textContent =
+                    document.getElementById('result-desc').textContent.replace('review then generate PDFs', `${data.num_pdfs} PDFs generated`);
+                document.getElementById('pdf-count').textContent = `${data.num_pdfs} individual PDFs, zipped`;
+                document.getElementById('dl-zip').href = `/download/${currentJobId}/zip`;
+                document.getElementById('zip-row').style.display = 'flex';
+
+            } catch (err) {
+                document.getElementById('pdf-processing').classList.remove('show');
+                document.getElementById('pdf-section').style.display = 'block';
+                document.getElementById('pdf-error-msg').textContent = 'PDF generation failed. Please try again.';
+                document.getElementById('pdf-error-msg').classList.add('show');
+            }
+        });
+
         // Reset
         document.getElementById('reset-btn').addEventListener('click', () => {
             results.classList.remove('show');
             uploadArea.style.display = 'block';
+            currentJobId = null;
             clearFile();
         });
     </script>
