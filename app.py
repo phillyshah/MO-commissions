@@ -28,7 +28,7 @@ from process_commissions import (
     find_summary_header, scan_summary_meta, is_legacy_subtotal,
     build_surgeon_lookup, generate_distributor_tabs, create_summary_tab,
     insert_distributor_subtotals, apply_summary_alignment,
-    collect_data_rows, copy_cell,
+    collect_data_rows, copy_cell, CLEAR_BORDER, CLEAR_FILL,
     get_sheet_ci, keep_sheets_ci,
     _build_group_summaries, _cleanup_tmp_images,
 )
@@ -536,37 +536,34 @@ def process_manager_split(input_path, job_dir):
     base_name  = os.path.splitext(os.path.basename(input_path))[0]
 
     # Detect managers (order of first appearance)
-    managers, seen = [], set()
+    # Pre-group rows by manager in one pass — avoids O(n×m) re-filtering per manager
+    manager_groups: dict = {}
     for cells in data_rows:
         mgr = cells[mgr_idx].value if mgr_idx < len(cells) else None
-        if mgr and str(mgr).strip() not in seen:
-            seen.add(str(mgr).strip())
-            managers.append(str(mgr).strip())
-    if not managers:
+        if mgr and str(mgr).strip():
+            manager_groups.setdefault(str(mgr).strip(), []).append(cells)
+
+    if not manager_groups:
         raise ValueError("No manager values found in data rows.")
 
     results = []
     lo_home = os.path.join(job_dir, ".lo_home")
 
-    for manager in managers:
+    for manager, mgr_rows in manager_groups.items():
         out_wb = openpyxl.load_workbook(input_path)
         keep_sheets_ci(out_wb, SPLIT_KEEP_SHEETS)
         out_ws = get_sheet_ci(out_wb, "masterlog")
 
-        # Clear data area — wipe value, border, and fill so blank rows
-        # don't appear as styled grid lines in the PDF output
-        from openpyxl.styles import Border, PatternFill
-        _empty_border = Border()
-        _empty_fill   = PatternFill(fill_type=None)
+        # Wipe data area: value + border + fill so blank rows don't render as
+        # styled grid lines in the PDF (CLEAR_BORDER/CLEAR_FILL from process_commissions)
         for r in range(header_row + 1, out_ws.max_row + 1):
             for c in range(1, out_ws.max_column + 1):
-                cell = out_ws.cell(row=r, column=c)
+                cell        = out_ws.cell(row=r, column=c)
                 cell.value  = None
-                cell.border = _empty_border
-                cell.fill   = _empty_fill
+                cell.border = CLEAR_BORDER
+                cell.fill   = CLEAR_FILL
 
         # Write this manager's rows
-        mgr_rows = [c for c in data_rows if str(c[mgr_idx].value).strip() == manager]
         wr = header_row + 1
         for cells in mgr_rows:
             for ci, src in enumerate(cells):
@@ -604,7 +601,7 @@ def process_manager_split(input_path, job_dir):
             if r["pdf_name"]:
                 zf.write(os.path.join(job_dir, r["pdf_name"]), r["pdf_name"])
 
-    return {"managers": results, "zip_name": zip_name, "num_managers": len(managers)}
+    return {"managers": results, "zip_name": zip_name, "num_managers": len(manager_groups)}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
