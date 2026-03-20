@@ -20,7 +20,7 @@ from openpyxl.utils import get_column_letter
 
 from process_commissions import (
     find_summary_header, scan_summary_meta, is_legacy_subtotal,
-    build_surgeon_lookup, generate_distributor_tabs,
+    build_surgeon_lookup, generate_distributor_tabs, create_summary_tab,
     insert_distributor_subtotals as _insert_subtotals,
     apply_summary_alignment as _apply_alignment,
     get_template_preformatted_rows,
@@ -562,7 +562,7 @@ def download(job_id, filetype):
 
 # ─── Manager Split Logic ──────────────────────────────────────────────────────
 
-SPLIT_KEEP_SHEETS = {'Summary'}
+SPLIT_KEEP_SHEETS = {'masterlog'}
 
 
 def split_copy_cell(src, dst):
@@ -596,10 +596,10 @@ def convert_manager_xlsx_to_pdf(xlsx_path, job_dir):
 def process_manager_split(input_path, job_dir):
     wb_src = openpyxl.load_workbook(input_path)
 
-    if 'Summary' not in wb_src.sheetnames:
-        raise ValueError("No 'Summary' sheet found in the workbook.")
+    if 'masterlog' not in wb_src.sheetnames:
+        raise ValueError("No 'masterlog' sheet found in the workbook.")
 
-    src_sheet                 = wb_src['Summary']
+    src_sheet                 = wb_src['masterlog']
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
         raise ValueError(
@@ -649,7 +649,7 @@ def process_manager_split(input_path, job_dir):
             if sname not in SPLIT_KEEP_SHEETS:
                 del out_wb[sname]
 
-        out_ws = out_wb['Summary']
+        out_ws = out_wb['masterlog']
 
         # Clear data area
         for r in range(header_row_num + 1, out_ws.max_row + 1):
@@ -755,24 +755,26 @@ def download_split_file(job_id, filename):
 def process_distributor_tabs(input_path, job_dir):
     """
     Generate one distributor tab per unique Distrib Code across all managers.
+    Also inserts a 'Summary' sheet at position 0 with per-distributor totals.
     Returns dict with xlsx_name, num_tabs.
     """
     wb_src = openpyxl.load_workbook(input_path)
 
-    if 'Summary' not in wb_src.sheetnames:
-        raise ValueError("No 'Summary' sheet found in the workbook.")
+    if 'masterlog' not in wb_src.sheetnames:
+        raise ValueError("No 'masterlog' sheet found in the workbook.")
 
-    src_sheet                 = wb_src['Summary']
+    src_sheet                 = wb_src['masterlog']
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
-        raise ValueError("Could not find header row in Summary sheet.")
+        raise ValueError("Could not find header row in masterlog sheet.")
 
     hosp_idx = label_map.get('hospital')
     dist_idx = label_map.get('distrib code', label_map.get('distributor'))
+    comm_idx = label_map.get('comm $')
     po_idx   = label_map.get('po')
 
     if hosp_idx is None or dist_idx is None:
-        raise ValueError("Missing required columns (Hospital, Distrib Code) in Summary.")
+        raise ValueError("Missing required columns (Hospital, Distrib Code) in masterlog.")
 
     title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
 
@@ -791,13 +793,36 @@ def process_distributor_tabs(input_path, job_dir):
 
     out_wb = openpyxl.load_workbook(input_path)
     for sname in list(out_wb.sheetnames):
-        if sname not in {'Summary', 'Surgeon lookup', 'template'}:
+        if sname not in {'masterlog', 'Surgeon lookup', 'template'}:
             del out_wb[sname]
 
     num_tabs = generate_distributor_tabs(
         out_wb, data_rows, dist_idx, label_map,
         title_val, pay_date_val, surgeon_lookup,
     )
+
+    # Build group summaries for the Summary tab
+    group_summaries = []   # [(dist_code, dist_name, n_rows, total_comm)]
+    seen_groups = {}
+    for row_cells in data_rows:
+        code_val = row_cells[dist_idx].value if dist_idx < len(row_cells) else None
+        code = str(code_val).strip() if code_val else ''
+        if not code:
+            continue
+        comm_val = (row_cells[comm_idx].value
+                    if comm_idx is not None and comm_idx < len(row_cells) else None)
+        comm = float(comm_val) if isinstance(comm_val, (int, float)) else 0.0
+        if code in seen_groups:
+            i = seen_groups[code]
+            c, n, nr, tc = group_summaries[i]
+            group_summaries[i] = (c, n, nr + 1, tc + comm)
+        else:
+            seen_groups[code] = len(group_summaries)
+            info = surgeon_lookup.get(code, {})
+            name = info.get('name', code)
+            group_summaries.append((code, name, 1, comm))
+
+    create_summary_tab(out_wb, group_summaries, title_val, pay_date_val)
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     xlsx_name = f"{base_name}_distributor_tabs.xlsx"
@@ -810,8 +835,8 @@ def process_distributor_tabs(input_path, job_dir):
         except OSError:
             pass
 
-    # Collect distributor tab names (excludes source sheets)
-    source_sheets = {'Summary', 'Surgeon lookup', 'template'}
+    # Collect distributor tab names (excludes source + summary sheets)
+    source_sheets = {'masterlog', 'Summary', 'Surgeon lookup', 'template'}
     tab_names = [s for s in out_wb.sheetnames if s not in source_sheets]
 
     return {
@@ -831,7 +856,7 @@ def generate_distributor_tab_pdfs(job_dir):
     if not xlsx_path:
         raise ValueError("No Excel workbook found for this job.")
 
-    skip_sheets = {'Summary', 'Surgeon lookup', 'template'}
+    skip_sheets = {'masterlog', 'Summary', 'Surgeon lookup', 'template'}
     temp_dir    = os.path.join(job_dir, 'temp_sheets')
     pdf_dir     = os.path.join(job_dir, 'pdfs')
     os.makedirs(temp_dir, exist_ok=True)

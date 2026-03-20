@@ -21,7 +21,7 @@ import shutil
 from datetime import datetime
 
 from openpyxl import load_workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image as XlImage
 from openpyxl.cell.cell import MergedCell
@@ -46,7 +46,7 @@ SUMMARY_TO_TEMPLATE = {
 SUMMARY_SKIP = {"manager", "distrib code", "distributor", "status", "date pd"}
 
 # Sheets to carry forward into each manager workbook (Step 1 — simple split)
-KEEP_SHEETS = {"Summary"}
+KEEP_SHEETS = {"masterlog"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -627,6 +627,97 @@ def convert_to_pdf(xlsx_path):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# STEP 2 — SUMMARY TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
+    """
+    Insert a 'Summary' sheet at position 0 with per-distributor commission totals.
+
+    group_summaries: list of (dist_code, dist_name, n_rows, total_comm)
+    Returns the new worksheet.
+    """
+    ws = out_wb.create_sheet("Summary", 0)
+
+    ws.column_dimensions['A'].width = 14
+    ws.column_dimensions['B'].width = 36
+    ws.column_dimensions['C'].width = 10
+    ws.column_dimensions['D'].width = 16
+
+    row = 1
+
+    # Title
+    if title_val:
+        c = ws.cell(row=row, column=1, value=title_val)
+        c.font = Font(bold=True, size=13)
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    # Pay date
+    if pay_date_val:
+        lbl = ws.cell(row=row, column=1, value="Pay Date:")
+        lbl.font = Font(bold=True, size=10)
+        c = ws.cell(row=row, column=2, value=pay_date_val)
+        from datetime import datetime as _dt
+        if isinstance(pay_date_val, _dt):
+            c.number_format = "mm/dd/yyyy"
+        row += 1
+
+    row += 1  # blank separator
+
+    # Header row
+    hdr_row = row
+    thin = Side(style='thin')
+    bottom_border = Border(bottom=thin)
+    for col, label, align in [
+        (1, "Distrib Code", "left"),
+        (2, "Distributor",  "left"),
+        (3, "# Lines",      "center"),
+        (4, "Total Comm $", "right"),
+    ]:
+        c = ws.cell(row=hdr_row, column=col, value=label)
+        c.font      = Font(bold=True, size=10)
+        c.border    = bottom_border
+        c.alignment = Alignment(horizontal=align)
+    row += 1
+
+    # Data rows
+    grand_n   = 0
+    grand_tot = 0.0
+    for dist_code, dist_name, n_rows, total_comm in group_summaries:
+        ws.cell(row=row, column=1, value=dist_code).alignment = Alignment(horizontal="left")
+        ws.cell(row=row, column=2, value=dist_name).alignment = Alignment(horizontal="left")
+        c_n = ws.cell(row=row, column=3, value=n_rows)
+        c_n.alignment = Alignment(horizontal="center")
+        c_t = ws.cell(row=row, column=4, value=total_comm)
+        c_t.number_format = "#,##0.00"
+        c_t.alignment = Alignment(horizontal="right")
+        grand_n   += n_rows
+        grand_tot += total_comm
+        row += 1
+
+    row += 1  # blank before grand total
+
+    top_border = Border(top=thin)
+    for col in range(1, 5):
+        ws.cell(row=row, column=col).border = top_border
+
+    lbl_c = ws.cell(row=row, column=2, value="Grand Total")
+    lbl_c.font = Font(bold=True, size=10)
+
+    c_gn = ws.cell(row=row, column=3, value=grand_n)
+    c_gn.font      = Font(bold=True, size=10)
+    c_gn.alignment = Alignment(horizontal="center")
+
+    c_gt = ws.cell(row=row, column=4, value=grand_tot)
+    c_gt.font         = Font(bold=True, size=10)
+    c_gt.number_format = "#,##0.00"
+    c_gt.alignment    = Alignment(horizontal="right")
+
+    return ws
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — DISTRIBUTOR TABS (all managers combined, one tab per Distrib Code)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -637,10 +728,10 @@ def process_distributor_tabs(input_path):
     """
     wb_src = load_workbook(input_path)
 
-    if "Summary" not in wb_src.sheetnames:
-        sys.exit("Error: No 'Summary' sheet found.")
+    if "masterlog" not in wb_src.sheetnames:
+        sys.exit("Error: No 'masterlog' sheet found.")
 
-    src_sheet                 = wb_src["Summary"]
+    src_sheet                 = wb_src["masterlog"]
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
         sys.exit("Error: Could not find header row in Summary sheet.")
@@ -666,7 +757,7 @@ def process_distributor_tabs(input_path):
 
     out_wb = load_workbook(input_path)
     for sname in list(out_wb.sheetnames):
-        if sname not in {"Summary", "Surgeon lookup", "template"}:
+        if sname not in {"masterlog", "Surgeon lookup", "template"}:
             del out_wb[sname]
 
     num_tabs = generate_distributor_tabs(
@@ -698,13 +789,13 @@ def process_distributor_tabs(input_path):
 def process(input_path):
     wb_src = load_workbook(input_path)
 
-    if "Summary" not in wb_src.sheetnames:
-        sys.exit("Error: No 'Summary' sheet found in the workbook.")
+    if "masterlog" not in wb_src.sheetnames:
+        sys.exit("Error: No 'masterlog' sheet found in the workbook.")
 
-    src_sheet                    = wb_src["Summary"]
+    src_sheet                    = wb_src["masterlog"]
     header_row_num, label_map    = find_summary_header(src_sheet)
     if header_row_num is None:
-        sys.exit("Error: Could not find header row in Summary sheet "
+        sys.exit("Error: Could not find header row in masterlog sheet "
                  "(need Manager, Hospital, Comm $, and Distributor/Distrib Code).")
 
     mgr_idx  = label_map.get("manager")
@@ -755,7 +846,7 @@ def process(input_path):
             if sname not in KEEP_SHEETS:
                 del out_wb[sname]
 
-        out_ws  = out_wb["Summary"]
+        out_ws  = out_wb["masterlog"]
         max_row = out_ws.max_row
 
         # Clear existing data rows

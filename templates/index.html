@@ -461,28 +461,6 @@
                     <a href="#" id="dist-dl-xlsx">↓ Download</a>
                 </div>
 
-                <div id="dist-pdf-section">
-                    <button class="btn btn-primary" id="dist-generate-pdf-btn" style="margin-top:1rem;">Generate PDFs</button>
-                </div>
-
-                <div class="processing" id="dist-pdf-processing" style="padding:1.25rem 0;">
-                    <div class="spinner"></div>
-                    <p>Generating PDFs...</p>
-                    <div class="step">Converting tabs → Creating zip</div>
-                </div>
-
-                <div class="download-row" id="dist-zip-row" style="display:none; margin-top:0.6rem;">
-                    <div class="dl-info">
-                        <span class="dl-icon">📁</span>
-                        <div>
-                            <div class="dl-label">PDF Bundle</div>
-                            <div class="dl-desc" id="dist-pdf-count">Individual PDFs, zipped</div>
-                        </div>
-                    </div>
-                    <a href="#" id="dist-dl-zip">↓ Download</a>
-                </div>
-
-                <div class="error-msg" id="dist-pdf-error-msg"></div>
                 <button class="btn btn-reset" id="dist-reset-btn">Process Another File</button>
             </div>
         </div>
@@ -660,12 +638,8 @@
                 distJobId = data.job_id;
                 document.getElementById('dist-result-title').textContent = 'Tabs Generated';
                 document.getElementById('dist-result-desc').textContent =
-                    `${data.num_tabs} distributor tab${data.num_tabs !== 1 ? 's' : ''} · review then generate PDFs`;
+                    `Summary + ${data.num_tabs} distributor tab${data.num_tabs !== 1 ? 's' : ''}`;
                 document.getElementById('dist-dl-xlsx').href = `/download-dist-tabs/${data.job_id}/xlsx`;
-                document.getElementById('dist-pdf-section').style.display = 'block';
-                document.getElementById('dist-pdf-processing').classList.remove('show');
-                document.getElementById('dist-zip-row').style.display = 'none';
-                document.getElementById('dist-pdf-error-msg').classList.remove('show');
                 document.getElementById('dist-results').classList.add('show');
 
             } catch {
@@ -673,38 +647,6 @@
                 document.getElementById('dist-upload-area').style.display = 'block';
                 document.getElementById('dist-error-msg').textContent = 'Something went wrong. Please try again.';
                 document.getElementById('dist-error-msg').classList.add('show');
-            }
-        });
-
-        document.getElementById('dist-generate-pdf-btn').addEventListener('click', async () => {
-            if (!distJobId) return;
-            document.getElementById('dist-pdf-section').style.display = 'none';
-            document.getElementById('dist-pdf-processing').classList.add('show');
-            document.getElementById('dist-pdf-error-msg').classList.remove('show');
-
-            try {
-                const resp = await fetch(`/dist-tabs-generate-pdfs/${distJobId}`, { method: 'POST' });
-                const data = await resp.json();
-                document.getElementById('dist-pdf-processing').classList.remove('show');
-
-                if (data.error) {
-                    document.getElementById('dist-pdf-section').style.display = 'block';
-                    document.getElementById('dist-pdf-error-msg').textContent = data.error;
-                    document.getElementById('dist-pdf-error-msg').classList.add('show');
-                    return;
-                }
-
-                document.getElementById('dist-result-desc').textContent =
-                    `${data.num_pdfs} PDFs generated`;
-                document.getElementById('dist-pdf-count').textContent = `${data.num_pdfs} individual PDFs, zipped`;
-                document.getElementById('dist-dl-zip').href = `/download-dist-tabs/${distJobId}/zip`;
-                document.getElementById('dist-zip-row').style.display = 'flex';
-
-            } catch {
-                document.getElementById('dist-pdf-processing').classList.remove('show');
-                document.getElementById('dist-pdf-section').style.display = 'block';
-                document.getElementById('dist-pdf-error-msg').textContent = 'PDF generation failed. Please try again.';
-                document.getElementById('dist-pdf-error-msg').classList.add('show');
             }
         });
 
