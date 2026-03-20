@@ -52,6 +52,24 @@ python app.py
 # Open http://localhost:5000
 ```
 
+## Commission Processor (process_commissions.py)
+
+Standalone script that takes the completed commission workbook (the `.xlsx` produced by the web app) and splits it into one manager-specific workbook each, with distributor subtotals inserted automatically.
+
+```bash
+python process_commissions.py <input.xlsx>
+```
+
+**What it does:**
+
+- Locates the `Summary` sheet and dynamically finds the header row (no hardcoded positions)
+- Strips legacy subtotal rows from prior runs
+- Produces one output file per manager: `{Manager}-{input_filename}.xlsx`
+- Each output contains only that manager's rows, with a subtotal row (bold, `SUM` formula) inserted after each consecutive distributor group
+- Column widths and all cell styles are preserved
+
+**Output files** are written to the same directory as the input file.
+
 ## File Structure
 
 ```
