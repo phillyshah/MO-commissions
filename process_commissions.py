@@ -512,7 +512,7 @@ def generate_distributor_tabs(out_wb, data_rows, dist_col_0idx,
     preformatted_rows = get_template_preformatted_rows(tmpl_ws, tmpl_header_row)
     first_row_borders = capture_row_borders(tmpl_ws, preformatted_rows[0]) if preformatted_rows else {}
 
-    # Group rows by Distrib Code (order of first appearance)
+    # Group rows by Distrib Code, then sort alphabetically by distributor name
     groups = []
     seen   = {}
     for cells in data_rows:
@@ -525,6 +525,8 @@ def generate_distributor_tabs(out_wb, data_rows, dist_col_0idx,
         else:
             seen[code] = len(groups)
             groups.append((code, [cells]))
+
+    groups.sort(key=lambda g: surgeon_lookup.get(g[0], {}).get("name", g[0]).lower())
 
     # Pre-read template images to temp files (workaround for PIL closing BytesIO)
     template_images = []
@@ -875,6 +877,8 @@ def _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup):
             seen[code] = len(groups)
             info = surgeon_lookup.get(code, {})
             groups.append((code, info.get("name", code), 1, comm))
+
+    groups.sort(key=lambda g: g[1].lower())
     return groups
 
 
