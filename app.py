@@ -24,6 +24,7 @@ from process_commissions import (
     insert_distributor_subtotals as _insert_subtotals,
     apply_summary_alignment as _apply_alignment,
     get_template_preformatted_rows,
+    get_sheet_ci, keep_sheets_ci,
 )
 
 app = Flask(__name__)
@@ -596,10 +597,10 @@ def convert_manager_xlsx_to_pdf(xlsx_path, job_dir):
 def process_manager_split(input_path, job_dir):
     wb_src = openpyxl.load_workbook(input_path)
 
-    if 'masterlog' not in wb_src.sheetnames:
+    src_sheet = get_sheet_ci(wb_src, 'masterlog')
+    if src_sheet is None:
         raise ValueError("No 'masterlog' sheet found in the workbook.")
 
-    src_sheet                 = wb_src['masterlog']
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
         raise ValueError(
@@ -645,11 +646,9 @@ def process_manager_split(input_path, job_dir):
         out_wb = openpyxl.load_workbook(input_path)
 
         # Keep the three source sheets; remove everything else
-        for sname in list(out_wb.sheetnames):
-            if sname not in SPLIT_KEEP_SHEETS:
-                del out_wb[sname]
+        keep_sheets_ci(out_wb, SPLIT_KEEP_SHEETS)
 
-        out_ws = out_wb['masterlog']
+        out_ws = get_sheet_ci(out_wb, 'masterlog')
 
         # Clear data area
         for r in range(header_row_num + 1, out_ws.max_row + 1):
@@ -760,10 +759,10 @@ def process_distributor_tabs(input_path, job_dir):
     """
     wb_src = openpyxl.load_workbook(input_path)
 
-    if 'masterlog' not in wb_src.sheetnames:
+    src_sheet = get_sheet_ci(wb_src, 'masterlog')
+    if src_sheet is None:
         raise ValueError("No 'masterlog' sheet found in the workbook.")
 
-    src_sheet                 = wb_src['masterlog']
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
         raise ValueError("Could not find header row in masterlog sheet.")
@@ -792,9 +791,7 @@ def process_distributor_tabs(input_path, job_dir):
     surgeon_lookup = build_surgeon_lookup(wb_src)
 
     out_wb = openpyxl.load_workbook(input_path)
-    for sname in list(out_wb.sheetnames):
-        if sname not in {'masterlog', 'Surgeon lookup', 'template'}:
-            del out_wb[sname]
+    keep_sheets_ci(out_wb, {'masterlog', 'Surgeon lookup', 'template'})
 
     num_tabs = generate_distributor_tabs(
         out_wb, data_rows, dist_idx, label_map,

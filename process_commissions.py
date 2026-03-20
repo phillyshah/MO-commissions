@@ -27,6 +27,27 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.cell.cell import MergedCell
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SHEET HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_sheet_ci(wb, name):
+    """Case-insensitive sheet lookup. Returns the worksheet or None."""
+    name_lower = name.lower()
+    for sname in wb.sheetnames:
+        if sname.lower() == name_lower:
+            return wb[sname]
+    return None
+
+
+def keep_sheets_ci(wb, keep_names):
+    """Delete all sheets whose names don't match any name in keep_names (case-insensitive)."""
+    keep_lower = {n.lower() for n in keep_names}
+    for sname in list(wb.sheetnames):
+        if sname.lower() not in keep_lower:
+            del wb[sname]
+
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # Summary sheet alignment rules
@@ -728,10 +749,9 @@ def process_distributor_tabs(input_path):
     """
     wb_src = load_workbook(input_path)
 
-    if "masterlog" not in wb_src.sheetnames:
+    src_sheet = get_sheet_ci(wb_src, "masterlog")
+    if src_sheet is None:
         sys.exit("Error: No 'masterlog' sheet found.")
-
-    src_sheet                 = wb_src["masterlog"]
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
         sys.exit("Error: Could not find header row in Summary sheet.")
@@ -756,9 +776,7 @@ def process_distributor_tabs(input_path):
     surgeon_lookup = build_surgeon_lookup(wb_src)
 
     out_wb = load_workbook(input_path)
-    for sname in list(out_wb.sheetnames):
-        if sname not in {"masterlog", "Surgeon lookup", "template"}:
-            del out_wb[sname]
+    keep_sheets_ci(out_wb, {"masterlog", "Surgeon lookup", "template"})
 
     num_tabs = generate_distributor_tabs(
         out_wb, data_rows, dist_idx, label_map,
@@ -789,10 +807,10 @@ def process_distributor_tabs(input_path):
 def process(input_path):
     wb_src = load_workbook(input_path)
 
-    if "masterlog" not in wb_src.sheetnames:
+    src_sheet = get_sheet_ci(wb_src, "masterlog")
+    if src_sheet is None:
         sys.exit("Error: No 'masterlog' sheet found in the workbook.")
 
-    src_sheet                    = wb_src["masterlog"]
     header_row_num, label_map    = find_summary_header(src_sheet)
     if header_row_num is None:
         sys.exit("Error: Could not find header row in masterlog sheet "
@@ -842,11 +860,9 @@ def process(input_path):
         out_wb = load_workbook(input_path)
 
         # Remove sheets not needed in the output
-        for sname in list(out_wb.sheetnames):
-            if sname not in KEEP_SHEETS:
-                del out_wb[sname]
+        keep_sheets_ci(out_wb, KEEP_SHEETS)
 
-        out_ws  = out_wb["masterlog"]
+        out_ws = get_sheet_ci(out_wb, "masterlog")
         max_row = out_ws.max_row
 
         # Clear existing data rows
