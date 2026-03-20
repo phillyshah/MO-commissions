@@ -742,6 +742,60 @@ def download_dist_tabs(job_id, filetype):
 
 # ── Step 3 routes ─────────────────────────────────────────────────────────────
 
+def generate_distributor_tab_pdfs(job_dir):
+    """Convert each distributor tab to an individual PDF and bundle into a zip."""
+    xlsx_path = next(
+        (os.path.join(job_dir, f) for f in os.listdir(job_dir) if f.endswith(".xlsx")),
+        None,
+    )
+    if not xlsx_path:
+        raise ValueError("No Excel workbook found for this job.")
+
+    skip     = {"masterlog", "summary", "surgeon lookup", "template"}
+    temp_dir = os.path.join(job_dir, "temp_sheets")
+    pdf_dir  = os.path.join(job_dir, "pdfs")
+    lo_home  = os.path.join(job_dir, "lo_home")
+    os.makedirs(temp_dir, exist_ok=True)
+    os.makedirs(pdf_dir,  exist_ok=True)
+    os.makedirs(lo_home,  exist_ok=True)
+
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    for name in wb.sheetnames:
+        if name.lower() in skip:
+            continue
+        src_ws = wb[name]
+        new_wb = openpyxl.Workbook()
+        new_ws = new_wb.active
+        new_ws.title = name[:31]
+        _copy_sheet_data(src_ws, new_ws)
+        new_ws.page_setup.orientation = "landscape"
+        new_ws.page_setup.fitToWidth  = 1
+        new_ws.page_setup.fitToHeight = 0
+        new_ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+        safe = re.sub(r'[<>:"/\\|?*]', "_", name).strip()
+        new_wb.save(os.path.join(temp_dir, f"{safe}.xlsx"))
+        new_wb.close()
+    wb.close()
+
+    for fname in sorted(os.listdir(temp_dir)):
+        if fname.endswith(".xlsx"):
+            _convert_to_pdf_libreoffice(os.path.join(temp_dir, fname), pdf_dir, lo_home)
+
+    zip_name = os.path.basename(xlsx_path).replace(".xlsx", "_PDFs.zip")
+    zip_path = os.path.join(job_dir, zip_name)
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for pdf in sorted(os.listdir(pdf_dir)):
+            if pdf.endswith(".pdf"):
+                zf.write(os.path.join(pdf_dir, pdf), pdf)
+
+    num_pdfs = sum(1 for f in os.listdir(pdf_dir) if f.endswith(".pdf"))
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    shutil.rmtree(lo_home,  ignore_errors=True)
+
+    return {"zip_name": zip_name, "num_pdfs": num_pdfs}
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     """Step 3: accept a distributor-tabs xlsx and immediately generate PDFs."""
