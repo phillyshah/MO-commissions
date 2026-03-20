@@ -361,15 +361,15 @@
             <p>Internal tools for distributor &amp; manager commission processing</p>
         </div>
 
-        <!-- ── Card 1: Manager Commission Split ── -->
-        <div class="section-label">Manager Commission Split</div>
+        <!-- ── Card 1: Manager Split + Distributor Tabs ── -->
+        <div class="section-label">Step 1 — Manager Split &amp; Distributor Tabs</div>
         <div class="card">
             <div id="split-upload-area">
                 <div class="dropzone" id="split-dropzone">
                     <input type="file" id="split-file-input" accept=".xlsx">
                     <div class="dropzone-icon">📋</div>
                     <div class="dropzone-text">
-                        Drop a <strong>Summary .xlsx</strong> file here<br>
+                        Drop the <strong>Summary .xlsx</strong> file here<br>
                         or click to browse
                     </div>
                 </div>
@@ -386,15 +386,15 @@
 
             <div class="processing" id="split-processing">
                 <div class="spinner"></div>
-                <p>Splitting by manager...</p>
-                <div class="step">Parsing rows → Building workbooks → Generating PDFs</div>
+                <p>Processing commission file...</p>
+                <div class="step">Parsing rows → Building workbooks → Distributor tabs → PDFs</div>
             </div>
 
             <div class="results" id="split-results">
                 <div class="results-header">
                     <div class="check">✓</div>
                     <div class="info">
-                        <h3 id="split-result-title">Done!</h3>
+                        <h3 id="split-result-title">Split Complete</h3>
                         <p id="split-result-desc"></p>
                     </div>
                 </div>
@@ -412,14 +412,17 @@
 
         <!-- ── Card 2: Commission Statement Generator ── -->
         <div class="section-gap"></div>
-        <div class="section-label">Commission Statement Generator</div>
+        <div class="section-label">Step 2 — Commission Statement Generator</div>
+        <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem; padding-left:2px;">
+            Upload the verified workbook after manager splits are reviewed.
+        </p>
         <div class="card">
             <div id="upload-area">
                 <div class="dropzone" id="dropzone">
                     <input type="file" id="file-input" accept=".xlsx">
                     <div class="dropzone-icon">📄</div>
                     <div class="dropzone-text">
-                        Drop your <strong>.xlsx</strong> worksheet here<br>
+                        Drop the verified <strong>.xlsx</strong> workbook here<br>
                         or click to browse
                     </div>
                 </div>

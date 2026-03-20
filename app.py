@@ -18,6 +18,13 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.cell.cell import MergedCell
 from openpyxl.utils import get_column_letter
 
+from process_commissions import (
+    find_summary_header, scan_summary_meta, is_legacy_subtotal,
+    build_surgeon_lookup, generate_distributor_tabs,
+    insert_distributor_subtotals as _insert_subtotals,
+    apply_summary_alignment as _apply_alignment,
+)
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
@@ -554,103 +561,17 @@ def download(job_id, filetype):
 
 # ─── Manager Split Logic ──────────────────────────────────────────────────────
 
-SPLIT_REQUIRED_HEADERS = {"manager", "hospital", "distributor", "comm $"}
-SPLIT_LEFT_COLS = {"po", "notes", "surgeon", "hospital", "manager"}
-SPLIT_RIGHT_COLS = {"surgery date", "inv#", "inv date", "due date", "comm $"}
-
-
-def split_find_header_row(sheet):
-    for row in sheet.iter_rows():
-        values = [str(c.value).strip().lower() if c.value is not None else "" for c in row]
-        if SPLIT_REQUIRED_HEADERS.issubset(set(values)):
-            return row[0].row, {v: i for i, v in enumerate(values)}
-    return None, None
-
-
-def split_is_legacy_subtotal(row_cells, po_idx):
-    cell = row_cells[po_idx]
-    val = cell.value
-    if val is None:
-        return False
-    val_str = str(val).strip()
-    if val_str.lower().startswith("total") and not val_str.replace(",", "").replace(".", "").replace("Total", "").strip().lstrip("-").isnumeric():
-        if cell.font and cell.font.bold:
-            return True
-    return False
+SPLIT_KEEP_SHEETS = {'Summary', 'Surgeon lookup', 'template'}
 
 
 def split_copy_cell(src, dst):
     dst.value = src.value
     if src.has_style:
-        dst.font = copy(src.font)
-        dst.fill = copy(src.fill)
-        dst.border = copy(src.border)
-        dst.alignment = copy(src.alignment)
+        dst.font         = copy(src.font)
+        dst.fill         = copy(src.fill)
+        dst.border       = copy(src.border)
+        dst.alignment    = copy(src.alignment)
         dst.number_format = src.number_format
-
-
-def split_apply_alignment(ws, label_map, header_row_num):
-    col_alignments = {}
-    for label, idx in label_map.items():
-        if label in SPLIT_LEFT_COLS:
-            col_alignments[idx + 1] = "left"
-        elif label in SPLIT_RIGHT_COLS:
-            col_alignments[idx + 1] = "right"
-    for row in ws.iter_rows(min_row=header_row_num):
-        for cell in row:
-            if cell.column in col_alignments:
-                existing = cell.alignment or Alignment()
-                cell.alignment = Alignment(
-                    horizontal=col_alignments[cell.column],
-                    vertical=existing.vertical,
-                    wrap_text=existing.wrap_text,
-                )
-
-
-def split_insert_subtotals(ws, header_row_num, data_start_row, dist_col_idx, comm_col_idx):
-    data_rows = []
-    for row in ws.iter_rows(min_row=data_start_row):
-        data_rows.append([cell.value for cell in row])
-
-    blocks = []
-    for row_data in data_rows:
-        dist_val = row_data[dist_col_idx] if dist_col_idx < len(row_data) else None
-        dist_key = str(dist_val).strip() if dist_val else ""
-        if blocks and blocks[-1][0] == dist_key:
-            blocks[-1][1].append(row_data)
-        else:
-            blocks.append((dist_key, [row_data]))
-
-    for row in ws.iter_rows(min_row=data_start_row):
-        for cell in row:
-            cell.value = None
-
-    current_row = data_start_row
-    comm_col_letter = get_column_letter(comm_col_idx + 1)
-
-    for dist_code, rows in blocks:
-        group_start = current_row
-        for row_data in rows:
-            for col_idx_0, val in enumerate(row_data):
-                ws.cell(row=current_row, column=col_idx_0 + 1).value = val
-            current_row += 1
-        group_end = current_row - 1
-
-        current_row += 1  # blank
-
-        dist_cell = ws.cell(row=current_row, column=dist_col_idx + 1)
-        dist_cell.value = f"Total {dist_code}"
-        dist_cell.font = Font(bold=True)
-
-        comm_cell = ws.cell(row=current_row, column=comm_col_idx + 1)
-        comm_cell.value = f"=SUM({comm_col_letter}{group_start}:{comm_col_letter}{group_end})"
-        comm_cell.font = Font(bold=True)
-        comm_cell.number_format = "#,##0.00"
-
-        current_row += 1
-        current_row += 1  # blank
-
-    return len(blocks)
 
 
 def convert_manager_xlsx_to_pdf(xlsx_path, job_dir):
@@ -672,37 +593,42 @@ def convert_manager_xlsx_to_pdf(xlsx_path, job_dir):
 
 
 def process_manager_split(input_path, job_dir):
-    wb = openpyxl.load_workbook(input_path)
+    wb_src = openpyxl.load_workbook(input_path)
 
-    if 'Summary' not in wb.sheetnames:
+    if 'Summary' not in wb_src.sheetnames:
         raise ValueError("No 'Summary' sheet found in the workbook.")
 
-    src_sheet = wb['Summary']
-    header_row_num, label_map = split_find_header_row(src_sheet)
+    src_sheet                 = wb_src['Summary']
+    header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
-        raise ValueError("Could not find a header row with Manager, Hospital, Distributor, and Comm $.")
+        raise ValueError(
+            "Could not find a header row with Manager, Hospital, "
+            "Comm $, and Distributor/Distrib Code.")
 
-    mgr_idx = label_map['manager']
-    hosp_idx = label_map['hospital']
-    dist_idx = label_map['distributor']
-    comm_idx = label_map['comm $']
-    po_idx = label_map.get('po', None)
+    mgr_idx  = label_map.get('manager')
+    hosp_idx = label_map.get('hospital')
+    dist_idx = label_map.get('distrib code', label_map.get('distributor'))
+    comm_idx = label_map.get('comm $')
+    po_idx   = label_map.get('po')
 
-    all_rows = list(src_sheet.iter_rows())
+    if any(x is None for x in [mgr_idx, hosp_idx, dist_idx, comm_idx]):
+        raise ValueError("Missing required columns in Summary header.")
+
+    title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
+
+    all_rows     = list(src_sheet.iter_rows())
     header_row_0 = header_row_num - 1
-
-    data_rows = []
+    data_rows    = []
     for row in all_rows[header_row_0 + 1:]:
-        cells = list(row)
+        cells    = list(row)
         hosp_val = cells[hosp_idx].value if hosp_idx < len(cells) else None
-        if hosp_val is None or str(hosp_val).strip() == '':
+        if not hosp_val or not str(hosp_val).strip():
             continue
-        if po_idx is not None and split_is_legacy_subtotal(cells, po_idx):
+        if po_idx is not None and is_legacy_subtotal(cells, po_idx):
             continue
         data_rows.append(cells)
 
-    managers = []
-    seen = set()
+    managers, seen = [], set()
     for cells in data_rows:
         mgr = cells[mgr_idx].value if mgr_idx < len(cells) else None
         if mgr and str(mgr).strip() and str(mgr).strip() not in seen:
@@ -712,17 +638,22 @@ def process_manager_split(input_path, job_dir):
     if not managers:
         raise ValueError("No manager values found in data rows.")
 
-    col_widths = {col: dim.width for col, dim in src_sheet.column_dimensions.items()}
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    results = []
+    surgeon_lookup = build_surgeon_lookup(wb_src)
+    col_widths     = {col: dim.width for col, dim in src_sheet.column_dimensions.items()}
+    base_name      = os.path.splitext(os.path.basename(input_path))[0]
+    results        = []
 
     for manager in managers:
         out_wb = openpyxl.load_workbook(input_path)
+
+        # Keep the three source sheets; remove everything else
         for sname in list(out_wb.sheetnames):
-            if sname != 'Summary':
+            if sname not in SPLIT_KEEP_SHEETS:
                 del out_wb[sname]
 
         out_ws = out_wb['Summary']
+
+        # Clear data area
         for r in range(header_row_num + 1, out_ws.max_row + 1):
             for c in range(1, out_ws.max_column + 1):
                 out_ws.cell(row=r, column=c).value = None
@@ -738,25 +669,38 @@ def process_manager_split(input_path, job_dir):
         for col_letter, width in col_widths.items():
             out_ws.column_dimensions[col_letter].width = width
 
-        split_insert_subtotals(out_ws, header_row_num, header_row_num + 1, dist_idx, comm_idx)
-        split_apply_alignment(out_ws, label_map, header_row_num)
+        _insert_subtotals(out_ws, header_row_num, header_row_num + 1, dist_idx, comm_idx)
+        _apply_alignment(out_ws, label_map, header_row_num)
+
+        # Generate distributor tabs from template
+        generate_distributor_tabs(
+            out_wb, manager_rows, dist_idx, label_map,
+            title_val, pay_date_val, surgeon_lookup,
+        )
 
         safe_manager = re.sub(r'[<>:"/\\|?*]', '_', manager)
-        xlsx_name = f"{safe_manager}-{base_name}.xlsx"
-        xlsx_path = os.path.join(job_dir, xlsx_name)
+        xlsx_name    = f"{safe_manager}-{base_name}.xlsx"
+        xlsx_path    = os.path.join(job_dir, xlsx_name)
         out_wb.save(xlsx_path)
+
+        # Clean up temp image files created during distributor tab generation
+        for tmp_path in getattr(out_wb, "_tmp_image_files", []):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
         pdf_path = convert_manager_xlsx_to_pdf(xlsx_path, job_dir)
         pdf_name = os.path.basename(pdf_path) if pdf_path else None
 
         results.append({
-            'manager': manager,
+            'manager':   manager,
             'xlsx_name': xlsx_name,
-            'pdf_name': pdf_name,
-            'num_rows': len(manager_rows),
+            'pdf_name':  pdf_name,
+            'num_rows':  len(manager_rows),
         })
 
-    # Bundle everything into a zip
+    # Bundle xlsx + pdf files into a zip
     zip_name = f"{base_name}_by_manager.zip"
     zip_path = os.path.join(job_dir, zip_name)
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -766,8 +710,8 @@ def process_manager_split(input_path, job_dir):
                 zf.write(os.path.join(job_dir, r['pdf_name']), r['pdf_name'])
 
     return {
-        'managers': results,
-        'zip_name': zip_name,
+        'managers':     results,
+        'zip_name':     zip_name,
         'num_managers': len(managers),
     }
 
