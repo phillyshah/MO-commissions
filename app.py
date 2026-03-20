@@ -13,6 +13,7 @@ import zipfile
 import subprocess
 import uuid
 import shutil
+import tempfile
 from datetime import datetime
 from copy import copy
 
@@ -759,15 +760,37 @@ def generate_distributor_tab_pdfs(job_dir):
     os.makedirs(pdf_dir,  exist_ok=True)
     os.makedirs(lo_home,  exist_ok=True)
 
+    # Load without data_only so images are accessible
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    wb_imgs = openpyxl.load_workbook(xlsx_path)  # second load to access embedded images
+
+    tmp_img_files = []  # track temp files for cleanup
+
     for name in wb.sheetnames:
         if name.lower() in skip:
             continue
-        src_ws = wb[name]
+        src_ws    = wb[name]
+        src_ws_i  = wb_imgs[name]   # image-accessible version of the same sheet
         new_wb = openpyxl.Workbook()
         new_ws = new_wb.active
         new_ws.title = name[:31]
         _copy_sheet_data(src_ws, new_ws)
+
+        # Copy images (not carried by data_only load) using temp files
+        for img in src_ws_i._images:
+            try:
+                raw    = img._data()
+                suffix = ".png" if raw[:4] == b"\x89PNG" else ".jpg"
+                tmp    = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+                tmp.write(raw)
+                tmp.close()
+                tmp_img_files.append(tmp.name)
+                ni        = XlImage(tmp.name)
+                ni.anchor = img.anchor
+                new_ws.add_image(ni)
+            except Exception as e:
+                print(f"  Warning: could not copy image for '{name}': {e}")
+
         new_ws.page_setup.orientation = "landscape"
         new_ws.page_setup.fitToWidth  = 1
         new_ws.page_setup.fitToHeight = 0
@@ -776,7 +799,15 @@ def generate_distributor_tab_pdfs(job_dir):
         safe = re.sub(r'[<>:"/\\|?*]', "_", name).strip()
         new_wb.save(os.path.join(temp_dir, f"{safe}.xlsx"))
         new_wb.close()
+
     wb.close()
+    wb_imgs.close()
+
+    for p in tmp_img_files:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
 
     for fname in sorted(os.listdir(temp_dir)):
         if fname.endswith(".xlsx"):
