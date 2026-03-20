@@ -362,7 +362,57 @@
             <p>Internal tools for distributor &amp; manager commission processing</p>
         </div>
 
-        <!-- ── Card 1: Commission Statement Generator ── -->
+        <!-- ── Card 1: Manager Commission Split ── -->
+        <div class="section-label">Manager Commission Split</div>
+        <div class="card">
+            <div id="split-upload-area">
+                <div class="dropzone" id="split-dropzone">
+                    <input type="file" id="split-file-input" accept=".xlsx">
+                    <div class="dropzone-icon">📋</div>
+                    <div class="dropzone-text">
+                        Drop a <strong>Summary .xlsx</strong> file here<br>
+                        or click to browse
+                    </div>
+                </div>
+
+                <div class="file-selected" id="split-file-info">
+                    <span class="fname" id="split-file-name"></span>
+                    <span class="fsize" id="split-file-size"></span>
+                    <button class="remove-btn" id="split-remove-btn" title="Remove">✕</button>
+                </div>
+
+                <button class="btn btn-primary" id="split-process-btn" disabled>Split by Manager</button>
+                <div class="error-msg" id="split-error-msg"></div>
+            </div>
+
+            <div class="processing" id="split-processing">
+                <div class="spinner"></div>
+                <p>Splitting by manager...</p>
+                <div class="step">Parsing rows → Building workbooks → Generating PDFs</div>
+            </div>
+
+            <div class="results" id="split-results">
+                <div class="results-header">
+                    <div class="check">✓</div>
+                    <div class="info">
+                        <h3 id="split-result-title">Done!</h3>
+                        <p id="split-result-desc"></p>
+                    </div>
+                </div>
+
+                <div id="split-manager-rows"></div>
+
+                <a class="btn btn-primary" id="split-dl-zip" href="#" style="text-align:center; text-decoration:none; margin-top:1rem;">
+                    ↓ Download All (ZIP)
+                </a>
+
+                <div class="error-msg" id="split-result-error"></div>
+                <button class="btn btn-reset" id="split-reset-btn">Process Another File</button>
+            </div>
+        </div>
+
+        <!-- ── Card 2: Commission Statement Generator ── -->
+        <div class="section-gap"></div>
         <div class="section-label">Commission Statement Generator</div>
         <div class="card">
             <div id="upload-area">
@@ -434,56 +484,6 @@
 
                 <div class="error-msg" id="pdf-error-msg"></div>
                 <button class="btn btn-reset" id="reset-btn">Process Another File</button>
-            </div>
-        </div>
-
-        <!-- ── Card 2: Manager Commission Split ── -->
-        <div class="section-gap"></div>
-        <div class="section-label">Manager Commission Split</div>
-        <div class="card">
-            <div id="split-upload-area">
-                <div class="dropzone" id="split-dropzone">
-                    <input type="file" id="split-file-input" accept=".xlsx">
-                    <div class="dropzone-icon">📋</div>
-                    <div class="dropzone-text">
-                        Drop a <strong>Summary .xlsx</strong> file here<br>
-                        or click to browse
-                    </div>
-                </div>
-
-                <div class="file-selected" id="split-file-info">
-                    <span class="fname" id="split-file-name"></span>
-                    <span class="fsize" id="split-file-size"></span>
-                    <button class="remove-btn" id="split-remove-btn" title="Remove">✕</button>
-                </div>
-
-                <button class="btn btn-primary" id="split-process-btn" disabled>Split by Manager</button>
-                <div class="error-msg" id="split-error-msg"></div>
-            </div>
-
-            <div class="processing" id="split-processing">
-                <div class="spinner"></div>
-                <p>Splitting by manager...</p>
-                <div class="step">Parsing rows → Building workbooks → Generating PDFs</div>
-            </div>
-
-            <div class="results" id="split-results">
-                <div class="results-header">
-                    <div class="check">✓</div>
-                    <div class="info">
-                        <h3 id="split-result-title">Done!</h3>
-                        <p id="split-result-desc"></p>
-                    </div>
-                </div>
-
-                <div id="split-manager-rows"></div>
-
-                <a class="btn btn-primary" id="split-dl-zip" href="#" style="text-align:center; text-decoration:none; margin-top:1rem;">
-                    ↓ Download All (ZIP)
-                </a>
-
-                <div class="error-msg" id="split-result-error"></div>
-                <button class="btn btn-reset" id="split-reset-btn">Process Another File</button>
             </div>
         </div>
 
