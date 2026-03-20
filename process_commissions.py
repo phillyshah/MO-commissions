@@ -45,8 +45,8 @@ SUMMARY_TO_TEMPLATE = {
 # Summary columns with no template equivalent (skip when writing distributor tabs)
 SUMMARY_SKIP = {"manager", "distrib code", "distributor", "status", "date pd"}
 
-# Sheets to carry forward into each manager workbook
-KEEP_SHEETS = {"Summary", "Surgeon lookup", "template"}
+# Sheets to carry forward into each manager workbook (Step 1 — simple split)
+KEEP_SHEETS = {"Summary"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -627,6 +627,71 @@ def convert_to_pdf(xlsx_path):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# STEP 2 — DISTRIBUTOR TABS (all managers combined, one tab per Distrib Code)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def process_distributor_tabs(input_path):
+    """
+    Generate one distributor tab per unique Distrib Code (across all managers).
+    Returns the output xlsx path.
+    """
+    wb_src = load_workbook(input_path)
+
+    if "Summary" not in wb_src.sheetnames:
+        sys.exit("Error: No 'Summary' sheet found.")
+
+    src_sheet                 = wb_src["Summary"]
+    header_row_num, label_map = find_summary_header(src_sheet)
+    if header_row_num is None:
+        sys.exit("Error: Could not find header row in Summary sheet.")
+
+    hosp_idx = label_map.get("hospital")
+    dist_idx = label_map.get("distrib code", label_map.get("distributor"))
+    po_idx   = label_map.get("po")
+
+    title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
+
+    all_rows  = list(src_sheet.iter_rows())
+    data_rows = []
+    for row in all_rows[header_row_num:]:          # header_row_num is 1-based, so index = header_row_num (skips header)
+        cells    = list(row)
+        hosp_val = cells[hosp_idx].value if hosp_idx < len(cells) else None
+        if not hosp_val or not str(hosp_val).strip():
+            continue
+        if po_idx is not None and is_legacy_subtotal(cells, po_idx):
+            continue
+        data_rows.append(cells)
+
+    surgeon_lookup = build_surgeon_lookup(wb_src)
+
+    out_wb = load_workbook(input_path)
+    for sname in list(out_wb.sheetnames):
+        if sname not in {"Summary", "Surgeon lookup", "template"}:
+            del out_wb[sname]
+
+    num_tabs = generate_distributor_tabs(
+        out_wb, data_rows, dist_idx, label_map,
+        title_val, pay_date_val, surgeon_lookup,
+    )
+
+    input_dir = os.path.dirname(os.path.abspath(input_path))
+    base_name = os.path.splitext(os.path.basename(input_path))[0]
+    out_path  = os.path.join(input_dir, f"{base_name}_distributor_tabs.xlsx")
+    out_wb.save(out_path)
+
+    for tmp_path in getattr(out_wb, "_tmp_image_files", []):
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    pdf_path   = convert_to_pdf(out_path)
+    pdf_status = ", PDF saved" if pdf_path else ", PDF: failed"
+    print(f"Saved {os.path.basename(out_path)} — {num_tabs} distributor tabs{pdf_status}")
+    return out_path
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -719,30 +784,17 @@ def process(input_path):
         # Apply column alignment
         apply_summary_alignment(out_ws, label_map, header_row_num)
 
-        # Generate distributor tabs from template
-        num_tabs = generate_distributor_tabs(
-            out_wb, manager_rows, dist_idx, label_map,
-            title_val, pay_date_val, surgeon_lookup,
-        )
-
         # Save xlsx
         safe_mgr  = manager.replace("/", "_").replace("\\", "_")
         out_name  = f"{safe_mgr}-{base_name}.xlsx"
         out_path  = os.path.join(input_dir, out_name)
         out_wb.save(out_path)
 
-        # Clean up temp image files
-        for tmp_path in getattr(out_wb, "_tmp_image_files", []):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
         # Convert to PDF
         pdf_path   = convert_to_pdf(out_path)
         pdf_status = ", PDF saved" if pdf_path else ", PDF: failed (LibreOffice not found?)"
         print(f"Saved {out_name} — {len(manager_rows)} data rows, "
-              f"{num_dists} distributor groups, {num_tabs} distributor tabs{pdf_status}")
+              f"{num_dists} distributor groups{pdf_status}")
 
 
 if __name__ == "__main__":

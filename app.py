@@ -23,6 +23,7 @@ from process_commissions import (
     build_surgeon_lookup, generate_distributor_tabs,
     insert_distributor_subtotals as _insert_subtotals,
     apply_summary_alignment as _apply_alignment,
+    get_template_preformatted_rows,
 )
 
 app = Flask(__name__)
@@ -561,7 +562,7 @@ def download(job_id, filetype):
 
 # ─── Manager Split Logic ──────────────────────────────────────────────────────
 
-SPLIT_KEEP_SHEETS = {'Summary', 'Surgeon lookup', 'template'}
+SPLIT_KEEP_SHEETS = {'Summary'}
 
 
 def split_copy_cell(src, dst):
@@ -614,8 +615,6 @@ def process_manager_split(input_path, job_dir):
     if any(x is None for x in [mgr_idx, hosp_idx, dist_idx, comm_idx]):
         raise ValueError("Missing required columns in Summary header.")
 
-    title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
-
     all_rows     = list(src_sheet.iter_rows())
     header_row_0 = header_row_num - 1
     data_rows    = []
@@ -638,8 +637,7 @@ def process_manager_split(input_path, job_dir):
     if not managers:
         raise ValueError("No manager values found in data rows.")
 
-    surgeon_lookup = build_surgeon_lookup(wb_src)
-    col_widths     = {col: dim.width for col, dim in src_sheet.column_dimensions.items()}
+    col_widths = {col: dim.width for col, dim in src_sheet.column_dimensions.items()}
     base_name      = os.path.splitext(os.path.basename(input_path))[0]
     results        = []
 
@@ -672,23 +670,10 @@ def process_manager_split(input_path, job_dir):
         _insert_subtotals(out_ws, header_row_num, header_row_num + 1, dist_idx, comm_idx)
         _apply_alignment(out_ws, label_map, header_row_num)
 
-        # Generate distributor tabs from template
-        generate_distributor_tabs(
-            out_wb, manager_rows, dist_idx, label_map,
-            title_val, pay_date_val, surgeon_lookup,
-        )
-
         safe_manager = re.sub(r'[<>:"/\\|?*]', '_', manager)
         xlsx_name    = f"{safe_manager}-{base_name}.xlsx"
         xlsx_path    = os.path.join(job_dir, xlsx_name)
         out_wb.save(xlsx_path)
-
-        # Clean up temp image files created during distributor tab generation
-        for tmp_path in getattr(out_wb, "_tmp_image_files", []):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
 
         pdf_path = convert_manager_xlsx_to_pdf(xlsx_path, job_dir)
         pdf_name = os.path.basename(pdf_path) if pdf_path else None
@@ -763,6 +748,209 @@ def download_split_file(job_id, filename):
     if not os.path.exists(file_path):
         return 'File not found', 404
     return send_file(file_path, as_attachment=True, download_name=safe_name)
+
+
+# ─── Distributor Tabs Logic (Step 2) ──────────────────────────────────────────
+
+def process_distributor_tabs(input_path, job_dir):
+    """
+    Generate one distributor tab per unique Distrib Code across all managers.
+    Returns dict with xlsx_name, num_tabs.
+    """
+    wb_src = openpyxl.load_workbook(input_path)
+
+    if 'Summary' not in wb_src.sheetnames:
+        raise ValueError("No 'Summary' sheet found in the workbook.")
+
+    src_sheet                 = wb_src['Summary']
+    header_row_num, label_map = find_summary_header(src_sheet)
+    if header_row_num is None:
+        raise ValueError("Could not find header row in Summary sheet.")
+
+    hosp_idx = label_map.get('hospital')
+    dist_idx = label_map.get('distrib code', label_map.get('distributor'))
+    po_idx   = label_map.get('po')
+
+    if hosp_idx is None or dist_idx is None:
+        raise ValueError("Missing required columns (Hospital, Distrib Code) in Summary.")
+
+    title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
+
+    all_rows  = list(src_sheet.iter_rows())
+    data_rows = []
+    for row in all_rows[header_row_num:]:   # header_row_num is 1-based index → skips header
+        cells    = list(row)
+        hosp_val = cells[hosp_idx].value if hosp_idx < len(cells) else None
+        if not hosp_val or not str(hosp_val).strip():
+            continue
+        if po_idx is not None and is_legacy_subtotal(cells, po_idx):
+            continue
+        data_rows.append(cells)
+
+    surgeon_lookup = build_surgeon_lookup(wb_src)
+
+    out_wb = openpyxl.load_workbook(input_path)
+    for sname in list(out_wb.sheetnames):
+        if sname not in {'Summary', 'Surgeon lookup', 'template'}:
+            del out_wb[sname]
+
+    num_tabs = generate_distributor_tabs(
+        out_wb, data_rows, dist_idx, label_map,
+        title_val, pay_date_val, surgeon_lookup,
+    )
+
+    base_name = os.path.splitext(os.path.basename(input_path))[0]
+    xlsx_name = f"{base_name}_distributor_tabs.xlsx"
+    xlsx_path = os.path.join(job_dir, xlsx_name)
+    out_wb.save(xlsx_path)
+
+    for tmp_path in getattr(out_wb, '_tmp_image_files', []):
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    # Collect distributor tab names (excludes source sheets)
+    source_sheets = {'Summary', 'Surgeon lookup', 'template'}
+    tab_names = [s for s in out_wb.sheetnames if s not in source_sheets]
+
+    return {
+        'xlsx_name': xlsx_name,
+        'num_tabs':  num_tabs,
+        'tab_names': tab_names,
+    }
+
+
+def generate_distributor_tab_pdfs(job_dir):
+    """Convert each distributor tab to an individual PDF, zip them."""
+    xlsx_path = None
+    for fname in os.listdir(job_dir):
+        if fname.endswith('.xlsx'):
+            xlsx_path = os.path.join(job_dir, fname)
+            break
+    if not xlsx_path:
+        raise ValueError("No Excel workbook found for this job.")
+
+    skip_sheets = {'Summary', 'Surgeon lookup', 'template'}
+    temp_dir    = os.path.join(job_dir, 'temp_sheets')
+    pdf_dir     = os.path.join(job_dir, 'pdfs')
+    os.makedirs(temp_dir, exist_ok=True)
+    os.makedirs(pdf_dir,  exist_ok=True)
+
+    wb_pdf = openpyxl.load_workbook(xlsx_path, data_only=True)
+    for name in wb_pdf.sheetnames:
+        if name in skip_sheets:
+            continue
+        safe_name = re.sub(r'[<>:"/\\|?*]', '_', name).strip()
+        src_ws    = wb_pdf[name]
+        new_wb    = openpyxl.Workbook()
+        new_ws    = new_wb.active
+        new_ws.title = name[:31]
+
+        for col_letter, dim in src_ws.column_dimensions.items():
+            new_ws.column_dimensions[col_letter].width  = dim.width  or 8.43
+            new_ws.column_dimensions[col_letter].hidden = dim.hidden
+        for row_num, dim in src_ws.row_dimensions.items():
+            new_ws.row_dimensions[row_num].height = dim.height or 15
+
+        from openpyxl.cell.cell import MergedCell as _MC
+        for row in src_ws.iter_rows(min_row=1, max_row=src_ws.max_row,
+                                     max_col=src_ws.max_column):
+            for cell in row:
+                if isinstance(cell, _MC):
+                    continue
+                nc = new_ws.cell(row=cell.row, column=cell.column)
+                nc.value = cell.value
+                if cell.has_style:
+                    nc.font          = copy(cell.font)
+                    nc.border        = copy(cell.border)
+                    nc.fill          = copy(cell.fill)
+                    nc.number_format = cell.number_format
+                    nc.alignment     = copy(cell.alignment)
+
+        new_ws.page_setup.orientation = 'landscape'
+        new_ws.page_setup.fitToWidth  = 1
+        new_ws.page_setup.fitToHeight = 0
+        new_ws.sheet_properties.pageSetUpPr.fitToPage = True
+        new_wb.save(os.path.join(temp_dir, f"{safe_name}.xlsx"))
+        new_wb.close()
+
+    wb_pdf.close()
+
+    lo_home = os.path.join(job_dir, 'lo_home')
+    os.makedirs(lo_home, exist_ok=True)
+    for fname in sorted(os.listdir(temp_dir)):
+        if not fname.endswith('.xlsx'):
+            continue
+        subprocess.run(
+            ['soffice', '--headless', '--norestore', '--calc',
+             '--convert-to', 'pdf', '--outdir', pdf_dir,
+             os.path.join(temp_dir, fname)],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, 'HOME': lo_home})
+
+    zip_name = os.path.basename(xlsx_path).replace('.xlsx', '_PDFs.zip')
+    zip_path = os.path.join(job_dir, zip_name)
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for pdf in sorted(os.listdir(pdf_dir)):
+            if pdf.endswith('.pdf'):
+                zf.write(os.path.join(pdf_dir, pdf), pdf)
+
+    num_pdfs = len([f for f in os.listdir(pdf_dir) if f.endswith('.pdf')])
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    shutil.rmtree(lo_home,  ignore_errors=True)
+
+    return {'zip_name': zip_name, 'num_pdfs': num_pdfs}
+
+
+# ─── Distributor Tabs Routes (Step 2) ─────────────────────────────────────────
+
+@app.route('/dist-tabs-upload', methods=['POST'])
+def dist_tabs_upload():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    if not file.filename.endswith('.xlsx'):
+        return jsonify({'error': 'Please upload an .xlsx file'}), 400
+
+    job_id  = str(uuid.uuid4())[:8]
+    job_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
+    os.makedirs(job_dir, exist_ok=True)
+
+    input_path = os.path.join(job_dir, secure_filename(file.filename))
+    file.save(input_path)
+
+    try:
+        result = process_distributor_tabs(input_path, job_dir)
+        return jsonify({'success': True, 'job_id': job_id, **result})
+    except Exception as e:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/dist-tabs-generate-pdfs/<job_id>', methods=['POST'])
+def dist_tabs_generate_pdfs_route(job_id):
+    job_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
+    if not os.path.exists(job_dir):
+        return jsonify({'error': 'Job not found'}), 404
+    try:
+        result = generate_distributor_tab_pdfs(job_dir)
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/download-dist-tabs/<job_id>/<filetype>')
+def download_dist_tabs(job_id, filetype):
+    job_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
+    if not os.path.exists(job_dir):
+        return 'Job not found', 404
+    for fname in os.listdir(job_dir):
+        if filetype == 'xlsx' and fname.endswith('.xlsx'):
+            return send_file(os.path.join(job_dir, fname), as_attachment=True, download_name=fname)
+        if filetype == 'zip' and fname.endswith('.zip'):
+            return send_file(os.path.join(job_dir, fname), as_attachment=True, download_name=fname)
+    return 'File not found', 404
 
 
 if __name__ == '__main__':

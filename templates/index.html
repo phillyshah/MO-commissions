@@ -361,8 +361,8 @@
             <p>Internal tools for distributor &amp; manager commission processing</p>
         </div>
 
-        <!-- ── Card 1: Manager Split + Distributor Tabs ── -->
-        <div class="section-label">Step 1 — Manager Split &amp; Distributor Tabs</div>
+        <!-- ── Card 1: Manager Split ── -->
+        <div class="section-label">Step 1 — Manager Split</div>
         <div class="card">
             <div id="split-upload-area">
                 <div class="dropzone" id="split-dropzone">
@@ -386,8 +386,8 @@
 
             <div class="processing" id="split-processing">
                 <div class="spinner"></div>
-                <p>Processing commission file...</p>
-                <div class="step">Parsing rows → Building workbooks → Distributor tabs → PDFs</div>
+                <p>Splitting by manager...</p>
+                <div class="step">Parsing rows → Building workbooks → Generating PDFs</div>
             </div>
 
             <div class="results" id="split-results">
@@ -410,9 +410,86 @@
             </div>
         </div>
 
-        <!-- ── Card 2: Commission Statement Generator ── -->
+        <!-- ── Card 2: Distributor Tabs ── -->
         <div class="section-gap"></div>
-        <div class="section-label">Step 2 — Commission Statement Generator</div>
+        <div class="section-label">Step 2 — Distributor Tab Generator</div>
+        <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem; padding-left:2px;">
+            Upload the verified Summary file to generate one tab per distributor.
+        </p>
+        <div class="card">
+            <div id="dist-upload-area">
+                <div class="dropzone" id="dist-dropzone">
+                    <input type="file" id="dist-file-input" accept=".xlsx">
+                    <div class="dropzone-icon">📊</div>
+                    <div class="dropzone-text">
+                        Drop the verified <strong>Summary .xlsx</strong> here<br>
+                        or click to browse
+                    </div>
+                </div>
+                <div class="file-selected" id="dist-file-info">
+                    <span class="fname" id="dist-file-name"></span>
+                    <span class="fsize" id="dist-file-size"></span>
+                    <button class="remove-btn" id="dist-remove-btn" title="Remove">✕</button>
+                </div>
+                <button class="btn btn-primary" id="dist-process-btn" disabled>Generate Distributor Tabs</button>
+                <div class="error-msg" id="dist-error-msg"></div>
+            </div>
+
+            <div class="processing" id="dist-processing">
+                <div class="spinner"></div>
+                <p>Generating distributor tabs...</p>
+                <div class="step">Parsing distributors → Building tabs → Populating data</div>
+            </div>
+
+            <div class="results" id="dist-results">
+                <div class="results-header">
+                    <div class="check">✓</div>
+                    <div class="info">
+                        <h3 id="dist-result-title">Done!</h3>
+                        <p id="dist-result-desc"></p>
+                    </div>
+                </div>
+
+                <div class="download-row">
+                    <div class="dl-info">
+                        <span class="dl-icon">📊</span>
+                        <div>
+                            <div class="dl-label">Excel Workbook</div>
+                            <div class="dl-desc">Summary + all distributor tabs</div>
+                        </div>
+                    </div>
+                    <a href="#" id="dist-dl-xlsx">↓ Download</a>
+                </div>
+
+                <div id="dist-pdf-section">
+                    <button class="btn btn-primary" id="dist-generate-pdf-btn" style="margin-top:1rem;">Generate PDFs</button>
+                </div>
+
+                <div class="processing" id="dist-pdf-processing" style="padding:1.25rem 0;">
+                    <div class="spinner"></div>
+                    <p>Generating PDFs...</p>
+                    <div class="step">Converting tabs → Creating zip</div>
+                </div>
+
+                <div class="download-row" id="dist-zip-row" style="display:none; margin-top:0.6rem;">
+                    <div class="dl-info">
+                        <span class="dl-icon">📁</span>
+                        <div>
+                            <div class="dl-label">PDF Bundle</div>
+                            <div class="dl-desc" id="dist-pdf-count">Individual PDFs, zipped</div>
+                        </div>
+                    </div>
+                    <a href="#" id="dist-dl-zip">↓ Download</a>
+                </div>
+
+                <div class="error-msg" id="dist-pdf-error-msg"></div>
+                <button class="btn btn-reset" id="dist-reset-btn">Process Another File</button>
+            </div>
+        </div>
+
+        <!-- ── Card 3: Commission Statement Generator ── -->
+        <div class="section-gap"></div>
+        <div class="section-label">Step 3 — Commission Statement Generator</div>
         <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem; padding-left:2px;">
             Upload the verified workbook after manager splits are reviewed.
         </p>
@@ -541,6 +618,102 @@
 
             return { getFile: () => selectedFile, clearFile };
         }
+
+        // ── Card 2: Distributor Tab Generator ────────────────────────────────
+        let distJobId = null;
+
+        const dzDist = makeDropzone(
+            document.getElementById('dist-dropzone'),
+            document.getElementById('dist-file-input'),
+            document.getElementById('dist-file-info'),
+            document.getElementById('dist-file-name'),
+            document.getElementById('dist-file-size'),
+            document.getElementById('dist-remove-btn'),
+            document.getElementById('dist-process-btn'),
+            document.getElementById('dist-error-msg'),
+            () => {}
+        );
+
+        document.getElementById('dist-process-btn').addEventListener('click', async () => {
+            const file = dzDist.getFile();
+            if (!file) return;
+
+            document.getElementById('dist-upload-area').style.display = 'none';
+            document.getElementById('dist-processing').classList.add('show');
+            document.getElementById('dist-error-msg').classList.remove('show');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const resp = await fetch('/dist-tabs-upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                document.getElementById('dist-processing').classList.remove('show');
+
+                if (data.error) {
+                    document.getElementById('dist-upload-area').style.display = 'block';
+                    document.getElementById('dist-error-msg').textContent = data.error;
+                    document.getElementById('dist-error-msg').classList.add('show');
+                    return;
+                }
+
+                distJobId = data.job_id;
+                document.getElementById('dist-result-title').textContent = 'Tabs Generated';
+                document.getElementById('dist-result-desc').textContent =
+                    `${data.num_tabs} distributor tab${data.num_tabs !== 1 ? 's' : ''} · review then generate PDFs`;
+                document.getElementById('dist-dl-xlsx').href = `/download-dist-tabs/${data.job_id}/xlsx`;
+                document.getElementById('dist-pdf-section').style.display = 'block';
+                document.getElementById('dist-pdf-processing').classList.remove('show');
+                document.getElementById('dist-zip-row').style.display = 'none';
+                document.getElementById('dist-pdf-error-msg').classList.remove('show');
+                document.getElementById('dist-results').classList.add('show');
+
+            } catch {
+                document.getElementById('dist-processing').classList.remove('show');
+                document.getElementById('dist-upload-area').style.display = 'block';
+                document.getElementById('dist-error-msg').textContent = 'Something went wrong. Please try again.';
+                document.getElementById('dist-error-msg').classList.add('show');
+            }
+        });
+
+        document.getElementById('dist-generate-pdf-btn').addEventListener('click', async () => {
+            if (!distJobId) return;
+            document.getElementById('dist-pdf-section').style.display = 'none';
+            document.getElementById('dist-pdf-processing').classList.add('show');
+            document.getElementById('dist-pdf-error-msg').classList.remove('show');
+
+            try {
+                const resp = await fetch(`/dist-tabs-generate-pdfs/${distJobId}`, { method: 'POST' });
+                const data = await resp.json();
+                document.getElementById('dist-pdf-processing').classList.remove('show');
+
+                if (data.error) {
+                    document.getElementById('dist-pdf-section').style.display = 'block';
+                    document.getElementById('dist-pdf-error-msg').textContent = data.error;
+                    document.getElementById('dist-pdf-error-msg').classList.add('show');
+                    return;
+                }
+
+                document.getElementById('dist-result-desc').textContent =
+                    `${data.num_pdfs} PDFs generated`;
+                document.getElementById('dist-pdf-count').textContent = `${data.num_pdfs} individual PDFs, zipped`;
+                document.getElementById('dist-dl-zip').href = `/download-dist-tabs/${distJobId}/zip`;
+                document.getElementById('dist-zip-row').style.display = 'flex';
+
+            } catch {
+                document.getElementById('dist-pdf-processing').classList.remove('show');
+                document.getElementById('dist-pdf-section').style.display = 'block';
+                document.getElementById('dist-pdf-error-msg').textContent = 'PDF generation failed. Please try again.';
+                document.getElementById('dist-pdf-error-msg').classList.add('show');
+            }
+        });
+
+        document.getElementById('dist-reset-btn').addEventListener('click', () => {
+            document.getElementById('dist-results').classList.remove('show');
+            document.getElementById('dist-upload-area').style.display = 'block';
+            distJobId = null;
+            dzDist.clearFile();
+        });
 
         // ── Card 1: Commission Statement Generator ───────────────────────────
         let currentJobId = null;
