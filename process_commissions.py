@@ -457,16 +457,26 @@ def populate_distributor_tab(ws, tmpl_header_row, tmpl_label_map, placeholders,
         ws.column_dimensions[get_column_letter(hosp_0idx + 1)].width = max_hosp_len + 2
 
     # ── 6. Total row ──
+    # Compute the actual sum from source rows so the value is present when the
+    # workbook is read with data_only=True (e.g. for PDF generation).
+    comm_sum = 0.0
+    if comm_0idx is not None:
+        src_comm_0idx = summary_label_map.get("comm $")
+        if src_comm_0idx is not None:
+            for src_cells in row_cells_list:
+                v = src_cells[src_comm_0idx].value if src_comm_0idx < len(src_cells) else None
+                if isinstance(v, (int, float)):
+                    comm_sum += v
+
     total_row = data_end + 2
     if comm_0idx is not None:
-        comm_letter = get_column_letter(comm_0idx + 1)
         if comm_0idx >= 1:
             lbl = ws.cell(row=total_row, column=comm_0idx)
             lbl.value = "Total Comm $"
             lbl.font  = Font(bold=True)
         tc = ws.cell(row=total_row, column=comm_0idx + 1)
-        tc.value        = f"=SUM({comm_letter}{data_start}:{comm_letter}{data_end})"
-        tc.font         = Font(bold=True)
+        tc.value         = comm_sum   # numeric value — readable without Excel evaluating formulas
+        tc.font          = Font(bold=True)
         tc.number_format = "#,##0.00"
 
     # ── 7. Page setup ──
