@@ -553,10 +553,17 @@ def process_manager_split(input_path, job_dir):
         keep_sheets_ci(out_wb, SPLIT_KEEP_SHEETS)
         out_ws = get_sheet_ci(out_wb, "masterlog")
 
-        # Clear data area
+        # Clear data area — wipe value, border, and fill so blank rows
+        # don't appear as styled grid lines in the PDF output
+        from openpyxl.styles import Border, PatternFill
+        _empty_border = Border()
+        _empty_fill   = PatternFill(fill_type=None)
         for r in range(header_row + 1, out_ws.max_row + 1):
             for c in range(1, out_ws.max_column + 1):
-                out_ws.cell(row=r, column=c).value = None
+                cell = out_ws.cell(row=r, column=c)
+                cell.value  = None
+                cell.border = _empty_border
+                cell.fill   = _empty_fill
 
         # Write this manager's rows
         mgr_rows = [c for c in data_rows if str(c[mgr_idx].value).strip() == manager]

@@ -526,7 +526,7 @@ def generate_distributor_tabs(out_wb, data_rows, dist_col_0idx,
             seen[code] = len(groups)
             groups.append((code, [cells]))
 
-    groups.sort(key=lambda g: surgeon_lookup.get(g[0], {}).get("name", g[0]).lower())
+    groups.sort(key=lambda g: g[0].lower())
 
     # Pre-read template images to temp files (workaround for PIL closing BytesIO)
     template_images = []
@@ -878,7 +878,7 @@ def _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup):
             info = surgeon_lookup.get(code, {})
             groups.append((code, info.get("name", code), 1, comm))
 
-    groups.sort(key=lambda g: g[1].lower())
+    groups.sort(key=lambda g: g[0].lower())
     return groups
 
 
