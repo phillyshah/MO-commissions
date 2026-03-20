@@ -11,6 +11,8 @@ with distributor subtotals inserted after each consecutive group.
 import sys
 import os
 import copy
+import subprocess
+import shutil
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
@@ -142,6 +144,26 @@ def insert_distributor_subtotals(ws, header_row_num, data_start_row, dist_col_id
     return len(blocks)
 
 
+def convert_to_pdf(xlsx_path):
+    """Convert xlsx to PDF using LibreOffice headless. Returns pdf path or None."""
+    out_dir = os.path.dirname(xlsx_path)
+    lo_home = os.path.join(out_dir, '.lo_home')
+    os.makedirs(lo_home, exist_ok=True)
+    try:
+        subprocess.run(
+            ['soffice', '--headless', '--norestore', '--calc',
+             '--convert-to', 'pdf', '--outdir', out_dir, xlsx_path],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ, 'HOME': lo_home}
+        )
+    except Exception:
+        pass
+    finally:
+        shutil.rmtree(lo_home, ignore_errors=True)
+    pdf_path = os.path.splitext(xlsx_path)[0] + '.pdf'
+    return pdf_path if os.path.exists(pdf_path) else None
+
+
 def process(input_path):
     wb = load_workbook(input_path)
 
@@ -243,7 +265,9 @@ def process(input_path):
         out_filename = f"{manager}-{base_name}.xlsx"
         out_path = os.path.join(input_dir, out_filename)
         out_wb.save(out_path)
-        print(f"Saved {out_filename} — {len(manager_rows)} data rows, {num_distributors} distributors")
+        pdf_path = convert_to_pdf(out_path)
+        pdf_status = f", PDF saved" if pdf_path else ", PDF: failed (LibreOffice not found?)"
+        print(f"Saved {out_filename} — {len(manager_rows)} data rows, {num_distributors} distributors{pdf_status}")
 
 
 if __name__ == "__main__":

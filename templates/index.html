@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maxx Health — Commission Statements</title>
+    <title>MO Commission Tools</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <style>
@@ -32,8 +32,8 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            padding: 2rem;
+            justify-content: flex-start;
+            padding: 3rem 2rem 4rem;
         }
 
         .container {
@@ -67,7 +67,21 @@
             font-weight: 300;
         }
 
-        /* Upload Card */
+        .section-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.65rem;
+            padding-left: 2px;
+        }
+
+        .section-gap {
+            margin-top: 2rem;
+        }
+
+        /* Card */
         .card {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -75,6 +89,7 @@
             padding: 2rem;
         }
 
+        /* Dropzone */
         .dropzone {
             border: 2px dashed var(--border);
             border-radius: var(--radius);
@@ -97,11 +112,7 @@
             cursor: pointer;
         }
 
-        .dropzone-icon {
-            font-size: 2.5rem;
-            margin-bottom: 0.75rem;
-            opacity: 0.6;
-        }
+        .dropzone-icon { font-size: 2.5rem; margin-bottom: 0.75rem; opacity: 0.6; }
 
         .dropzone-text {
             font-size: 0.95rem;
@@ -109,11 +120,9 @@
             line-height: 1.6;
         }
 
-        .dropzone-text strong {
-            color: var(--accent);
-            font-weight: 500;
-        }
+        .dropzone-text strong { color: var(--accent); font-weight: 500; }
 
+        /* File chip */
         .file-selected {
             display: none;
             align-items: center;
@@ -137,11 +146,7 @@
             text-overflow: ellipsis;
         }
 
-        .file-selected .fsize {
-            color: var(--text-muted);
-            font-size: 0.75rem;
-            flex-shrink: 0;
-        }
+        .file-selected .fsize { color: var(--text-muted); font-size: 0.75rem; flex-shrink: 0; }
 
         .file-selected .remove-btn {
             background: none;
@@ -155,6 +160,7 @@
 
         .file-selected .remove-btn:hover { color: var(--error); }
 
+        /* Buttons */
         .btn {
             display: block;
             width: 100%;
@@ -180,19 +186,19 @@
             box-shadow: 0 4px 20px var(--accent-glow);
         }
 
-        .btn-primary:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            transform: none;
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+        .btn-reset {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            margin-top: 1rem;
         }
 
-        /* Processing State */
-        .processing {
-            display: none;
-            text-align: center;
-            padding: 2rem 1rem;
-        }
+        .btn-reset:hover { border-color: var(--text-muted); color: var(--text); }
 
+        /* Spinner */
+        .processing { display: none; text-align: center; padding: 2rem 1rem; }
         .processing.show { display: block; }
 
         .spinner {
@@ -207,11 +213,7 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        .processing p {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-        }
-
+        .processing p { color: var(--text-muted); font-size: 0.9rem; }
         .processing .step {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.75rem;
@@ -221,11 +223,7 @@
         }
 
         /* Results */
-        .results {
-            display: none;
-            padding: 0.5rem 0 0;
-        }
-
+        .results { display: none; padding: 0.5rem 0 0; }
         .results.show { display: block; }
 
         .results-header {
@@ -245,18 +243,13 @@
             justify-content: center;
             color: var(--success);
             font-size: 1rem;
+            flex-shrink: 0;
         }
 
-        .results-header .info h3 {
-            font-size: 1rem;
-            font-weight: 600;
-        }
+        .results-header .info h3 { font-size: 1rem; font-weight: 600; }
+        .results-header .info p { font-size: 0.8rem; color: var(--text-muted); }
 
-        .results-header .info p {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
-
+        /* Download row (existing style for card 1) */
         .download-row {
             display: flex;
             align-items: center;
@@ -267,26 +260,10 @@
             margin-bottom: 0.6rem;
         }
 
-        .download-row .dl-info {
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-        }
-
-        .download-row .dl-icon {
-            font-size: 1.3rem;
-            opacity: 0.7;
-        }
-
-        .download-row .dl-label {
-            font-size: 0.85rem;
-            font-weight: 500;
-        }
-
-        .download-row .dl-desc {
-            font-size: 0.72rem;
-            color: var(--text-muted);
-        }
+        .download-row .dl-info { display: flex; align-items: center; gap: 0.6rem; }
+        .download-row .dl-icon { font-size: 1.3rem; opacity: 0.7; }
+        .download-row .dl-label { font-size: 0.85rem; font-weight: 500; }
+        .download-row .dl-desc { font-size: 0.72rem; color: var(--text-muted); }
 
         .download-row a {
             display: inline-flex;
@@ -302,21 +279,57 @@
             transition: all 0.15s;
         }
 
-        .download-row a:hover {
-            background: #3d7de0;
+        .download-row a:hover { background: #3d7de0; }
+
+        /* Manager rows (card 2) */
+        .manager-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.7rem 1rem;
+            background: var(--surface-hover);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
         }
 
-        .btn-reset {
+        .manager-row .mgr-name {
+            font-size: 0.9rem;
+            font-weight: 500;
+            flex: 1;
+        }
+
+        .manager-row .mgr-meta {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-right: 0.75rem;
+        }
+
+        .manager-row .mgr-downloads { display: flex; gap: 0.4rem; }
+
+        .mgr-dl-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            padding: 0.32rem 0.65rem;
+            border-radius: 6px;
+            font-size: 0.73rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+
+        .mgr-dl-xlsx { background: var(--accent); color: #fff; }
+        .mgr-dl-xlsx:hover { background: #3d7de0; }
+
+        .mgr-dl-pdf {
             background: transparent;
             border: 1px solid var(--border);
             color: var(--text-muted);
-            margin-top: 1rem;
         }
 
-        .btn-reset:hover {
-            border-color: var(--text-muted);
-            color: var(--text);
-        }
+        .mgr-dl-pdf:hover { border-color: var(--text-muted); color: var(--text); }
+        .mgr-dl-pdf.unavailable { opacity: 0.3; pointer-events: none; }
 
         /* Error */
         .error-msg {
@@ -344,19 +357,20 @@
 <body>
     <div class="container">
         <div class="logo-area">
-            <img src="/static/maxx_logo.png" alt="Maxx Health" onerror="this.style.display='none'">
-            <h1>Commission Statement Generator</h1>
-            <p>Upload a worksheet, get formatted statements + PDFs</p>
+            <img src="/static/maxx_logo.png" alt="Maxx Orthopedics" onerror="this.style.display='none'">
+            <h1>MO Commission Tools</h1>
+            <p>Internal tools for distributor &amp; manager commission processing</p>
         </div>
 
+        <!-- ── Card 1: Commission Statement Generator ── -->
+        <div class="section-label">Commission Statement Generator</div>
         <div class="card">
-            <!-- Upload State -->
             <div id="upload-area">
                 <div class="dropzone" id="dropzone">
                     <input type="file" id="file-input" accept=".xlsx">
                     <div class="dropzone-icon">📄</div>
                     <div class="dropzone-text">
-                        Drop your <strong>.xlsx</strong> file here<br>
+                        Drop your <strong>.xlsx</strong> worksheet here<br>
                         or click to browse
                     </div>
                 </div>
@@ -368,18 +382,15 @@
                 </div>
 
                 <button class="btn btn-primary" id="process-btn" disabled>Generate Statements</button>
-
                 <div class="error-msg" id="error-msg"></div>
             </div>
 
-            <!-- Processing State -->
             <div class="processing" id="processing">
                 <div class="spinner"></div>
                 <p>Generating commission statements...</p>
                 <div class="step">Parsing invoices → Building sheets → Creating PDFs</div>
             </div>
 
-            <!-- Results State -->
             <div class="results" id="results">
                 <div class="results-header">
                     <div class="check">✓</div>
@@ -400,7 +411,6 @@
                     <a href="#" id="dl-xlsx">↓ Download</a>
                 </div>
 
-                <!-- PDF generation section -->
                 <div id="pdf-section">
                     <button class="btn btn-primary" id="generate-pdf-btn" style="margin-top:1rem;">Generate PDFs</button>
                 </div>
@@ -423,134 +433,173 @@
                 </div>
 
                 <div class="error-msg" id="pdf-error-msg"></div>
-
                 <button class="btn btn-reset" id="reset-btn">Process Another File</button>
             </div>
         </div>
 
-        <footer>Maxx Health Inc. — Internal Tool</footer>
+        <!-- ── Card 2: Manager Commission Split ── -->
+        <div class="section-gap"></div>
+        <div class="section-label">Manager Commission Split</div>
+        <div class="card">
+            <div id="split-upload-area">
+                <div class="dropzone" id="split-dropzone">
+                    <input type="file" id="split-file-input" accept=".xlsx">
+                    <div class="dropzone-icon">📋</div>
+                    <div class="dropzone-text">
+                        Drop a <strong>Summary .xlsx</strong> file here<br>
+                        or click to browse
+                    </div>
+                </div>
+
+                <div class="file-selected" id="split-file-info">
+                    <span class="fname" id="split-file-name"></span>
+                    <span class="fsize" id="split-file-size"></span>
+                    <button class="remove-btn" id="split-remove-btn" title="Remove">✕</button>
+                </div>
+
+                <button class="btn btn-primary" id="split-process-btn" disabled>Split by Manager</button>
+                <div class="error-msg" id="split-error-msg"></div>
+            </div>
+
+            <div class="processing" id="split-processing">
+                <div class="spinner"></div>
+                <p>Splitting by manager...</p>
+                <div class="step">Parsing rows → Building workbooks → Generating PDFs</div>
+            </div>
+
+            <div class="results" id="split-results">
+                <div class="results-header">
+                    <div class="check">✓</div>
+                    <div class="info">
+                        <h3 id="split-result-title">Done!</h3>
+                        <p id="split-result-desc"></p>
+                    </div>
+                </div>
+
+                <div id="split-manager-rows"></div>
+
+                <a class="btn btn-primary" id="split-dl-zip" href="#" style="text-align:center; text-decoration:none; margin-top:1rem;">
+                    ↓ Download All (ZIP)
+                </a>
+
+                <div class="error-msg" id="split-result-error"></div>
+                <button class="btn btn-reset" id="split-reset-btn">Process Another File</button>
+            </div>
+        </div>
+
+        <footer>Maxx Orthopedics — Internal Tool</footer>
     </div>
 
     <script>
-        const dropzone = document.getElementById('dropzone');
-        const fileInput = document.getElementById('file-input');
-        const fileInfo = document.getElementById('file-info');
-        const fileName = document.getElementById('file-name');
-        const fileSize = document.getElementById('file-size');
-        const removeBtn = document.getElementById('remove-btn');
-        const processBtn = document.getElementById('process-btn');
-        const uploadArea = document.getElementById('upload-area');
-        const processing = document.getElementById('processing');
-        const results = document.getElementById('results');
-        const errorMsg = document.getElementById('error-msg');
-
-        let selectedFile = null;
-
+        // ── Helpers ──────────────────────────────────────────────────────────
         function formatBytes(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
             return (bytes / 1048576).toFixed(1) + ' MB';
         }
 
-        function setFile(file) {
-            if (!file || !file.name.endsWith('.xlsx')) {
-                showError('Please select an .xlsx file');
-                return;
+        function makeDropzone(dropzoneEl, fileInputEl, fileInfoEl, fileNameEl, fileSizeEl, removeBtnEl, processBtnEl, errorMsgEl, onFile) {
+            let selectedFile = null;
+
+            function setFile(file) {
+                if (!file || !file.name.endsWith('.xlsx')) {
+                    showErr('Please select an .xlsx file');
+                    return;
+                }
+                selectedFile = file;
+                fileNameEl.textContent = file.name;
+                fileSizeEl.textContent = formatBytes(file.size);
+                fileInfoEl.classList.add('show');
+                processBtnEl.disabled = false;
+                errorMsgEl.classList.remove('show');
+                onFile(file);
             }
-            selectedFile = file;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatBytes(file.size);
-            fileInfo.classList.add('show');
-            processBtn.disabled = false;
-            errorMsg.classList.remove('show');
+
+            function clearFile() {
+                selectedFile = null;
+                fileInputEl.value = '';
+                fileInfoEl.classList.remove('show');
+                processBtnEl.disabled = true;
+            }
+
+            function showErr(msg) {
+                errorMsgEl.textContent = msg;
+                errorMsgEl.classList.add('show');
+            }
+
+            dropzoneEl.addEventListener('dragover', (e) => { e.preventDefault(); dropzoneEl.classList.add('dragover'); });
+            dropzoneEl.addEventListener('dragleave', () => dropzoneEl.classList.remove('dragover'));
+            dropzoneEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzoneEl.classList.remove('dragover');
+                if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+            });
+            fileInputEl.addEventListener('change', () => { if (fileInputEl.files.length) setFile(fileInputEl.files[0]); });
+            removeBtnEl.addEventListener('click', (e) => { e.stopPropagation(); clearFile(); });
+
+            return { getFile: () => selectedFile, clearFile };
         }
 
-        function clearFile() {
-            selectedFile = null;
-            fileInput.value = '';
-            fileInfo.classList.remove('show');
-            processBtn.disabled = true;
-        }
-
-        function showError(msg) {
-            errorMsg.textContent = msg;
-            errorMsg.classList.add('show');
-        }
-
-        // Drag & drop
-        dropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropzone.classList.add('dragover');
-        });
-        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-        dropzone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('dragover');
-            if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
-        });
-
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files.length) setFile(fileInput.files[0]);
-        });
-
-        removeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            clearFile();
-        });
-
+        // ── Card 1: Commission Statement Generator ───────────────────────────
         let currentJobId = null;
+        let card1File = null;
 
-        // Process — Step 1: Excel only
-        processBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
+        const dz1 = makeDropzone(
+            document.getElementById('dropzone'),
+            document.getElementById('file-input'),
+            document.getElementById('file-info'),
+            document.getElementById('file-name'),
+            document.getElementById('file-size'),
+            document.getElementById('remove-btn'),
+            document.getElementById('process-btn'),
+            document.getElementById('error-msg'),
+            (f) => { card1File = f; }
+        );
 
-            uploadArea.style.display = 'none';
-            processing.classList.add('show');
-            errorMsg.classList.remove('show');
+        document.getElementById('process-btn').addEventListener('click', async () => {
+            const file = dz1.getFile();
+            if (!file) return;
+
+            document.getElementById('upload-area').style.display = 'none';
+            document.getElementById('processing').classList.add('show');
+            document.getElementById('error-msg').classList.remove('show');
 
             const formData = new FormData();
-            formData.append('file', selectedFile);
+            formData.append('file', file);
 
             try {
                 const resp = await fetch('/upload', { method: 'POST', body: formData });
                 const data = await resp.json();
 
+                document.getElementById('processing').classList.remove('show');
+
                 if (data.error) {
-                    processing.classList.remove('show');
-                    uploadArea.style.display = 'block';
-                    showError(data.error);
+                    document.getElementById('upload-area').style.display = 'block';
+                    document.getElementById('error-msg').textContent = data.error;
+                    document.getElementById('error-msg').classList.add('show');
                     return;
                 }
 
                 currentJobId = data.job_id;
-
-                // Show results — Excel only
-                processing.classList.remove('show');
-                results.classList.add('show');
-
-                document.getElementById('result-title').textContent =
-                    `${data.month} ${data.year} — Excel Ready`;
-                document.getElementById('result-desc').textContent =
-                    `${data.num_distributors} distributors · review then generate PDFs`;
+                document.getElementById('results').classList.add('show');
+                document.getElementById('result-title').textContent = `${data.month} ${data.year} — Excel Ready`;
+                document.getElementById('result-desc').textContent = `${data.num_distributors} distributors · review then generate PDFs`;
                 document.getElementById('dl-xlsx').href = `/download/${data.job_id}/xlsx`;
-
-                // Reset PDF section state
                 document.getElementById('pdf-section').style.display = 'block';
                 document.getElementById('pdf-processing').classList.remove('show');
                 document.getElementById('zip-row').style.display = 'none';
                 document.getElementById('pdf-error-msg').classList.remove('show');
 
-            } catch (err) {
-                processing.classList.remove('show');
-                uploadArea.style.display = 'block';
-                showError('Something went wrong. Please try again.');
+            } catch {
+                document.getElementById('processing').classList.remove('show');
+                document.getElementById('upload-area').style.display = 'block';
+                document.getElementById('error-msg').textContent = 'Something went wrong. Please try again.';
+                document.getElementById('error-msg').classList.add('show');
             }
         });
 
-        // Step 2: Generate PDFs
         document.getElementById('generate-pdf-btn').addEventListener('click', async () => {
             if (!currentJobId) return;
-
             document.getElementById('pdf-section').style.display = 'none';
             document.getElementById('pdf-processing').classList.add('show');
             document.getElementById('pdf-error-msg').classList.remove('show');
@@ -558,7 +607,6 @@
             try {
                 const resp = await fetch(`/generate-pdfs/${currentJobId}`, { method: 'POST' });
                 const data = await resp.json();
-
                 document.getElementById('pdf-processing').classList.remove('show');
 
                 if (data.error) {
@@ -576,7 +624,7 @@
                 document.getElementById('dl-zip').href = `/download/${currentJobId}/zip`;
                 document.getElementById('zip-row').style.display = 'flex';
 
-            } catch (err) {
+            } catch {
                 document.getElementById('pdf-processing').classList.remove('show');
                 document.getElementById('pdf-section').style.display = 'block';
                 document.getElementById('pdf-error-msg').textContent = 'PDF generation failed. Please try again.';
@@ -584,12 +632,111 @@
             }
         });
 
-        // Reset
         document.getElementById('reset-btn').addEventListener('click', () => {
-            results.classList.remove('show');
-            uploadArea.style.display = 'block';
+            document.getElementById('results').classList.remove('show');
+            document.getElementById('upload-area').style.display = 'block';
             currentJobId = null;
-            clearFile();
+            dz1.clearFile();
+        });
+
+        // ── Card 2: Manager Commission Split ─────────────────────────────────
+        let splitJobId = null;
+
+        const dz2 = makeDropzone(
+            document.getElementById('split-dropzone'),
+            document.getElementById('split-file-input'),
+            document.getElementById('split-file-info'),
+            document.getElementById('split-file-name'),
+            document.getElementById('split-file-size'),
+            document.getElementById('split-remove-btn'),
+            document.getElementById('split-process-btn'),
+            document.getElementById('split-error-msg'),
+            () => {}
+        );
+
+        document.getElementById('split-process-btn').addEventListener('click', async () => {
+            const file = dz2.getFile();
+            if (!file) return;
+
+            document.getElementById('split-upload-area').style.display = 'none';
+            document.getElementById('split-processing').classList.add('show');
+            document.getElementById('split-error-msg').classList.remove('show');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const resp = await fetch('/split-upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                document.getElementById('split-processing').classList.remove('show');
+
+                if (data.error) {
+                    document.getElementById('split-upload-area').style.display = 'block';
+                    document.getElementById('split-error-msg').textContent = data.error;
+                    document.getElementById('split-error-msg').classList.add('show');
+                    return;
+                }
+
+                splitJobId = data.job_id;
+                document.getElementById('split-result-title').textContent = 'Split Complete';
+                document.getElementById('split-result-desc').textContent =
+                    `${data.num_managers} manager${data.num_managers !== 1 ? 's' : ''} · xlsx + PDF per manager`;
+
+                // Build per-manager rows
+                const container = document.getElementById('split-manager-rows');
+                container.innerHTML = '';
+                for (const m of data.managers) {
+                    const row = document.createElement('div');
+                    row.className = 'manager-row';
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'mgr-name';
+                    nameSpan.textContent = m.manager;
+
+                    const metaSpan = document.createElement('span');
+                    metaSpan.className = 'mgr-meta';
+                    metaSpan.textContent = `${m.num_rows} rows`;
+
+                    const dlDiv = document.createElement('div');
+                    dlDiv.className = 'mgr-downloads';
+
+                    const xlsxLink = document.createElement('a');
+                    xlsxLink.className = 'mgr-dl-btn mgr-dl-xlsx';
+                    xlsxLink.href = `/download-split/${data.job_id}/file/${encodeURIComponent(m.xlsx_name)}`;
+                    xlsxLink.textContent = '↓ xlsx';
+
+                    const pdfLink = document.createElement('a');
+                    pdfLink.className = 'mgr-dl-btn mgr-dl-pdf' + (m.pdf_name ? '' : ' unavailable');
+                    if (m.pdf_name) {
+                        pdfLink.href = `/download-split/${data.job_id}/file/${encodeURIComponent(m.pdf_name)}`;
+                    }
+                    pdfLink.textContent = '↓ pdf';
+
+                    dlDiv.appendChild(xlsxLink);
+                    dlDiv.appendChild(pdfLink);
+                    row.appendChild(nameSpan);
+                    row.appendChild(metaSpan);
+                    row.appendChild(dlDiv);
+                    container.appendChild(row);
+                }
+
+                document.getElementById('split-dl-zip').href = `/download-split/${data.job_id}/zip`;
+                document.getElementById('split-results').classList.add('show');
+
+            } catch {
+                document.getElementById('split-processing').classList.remove('show');
+                document.getElementById('split-upload-area').style.display = 'block';
+                document.getElementById('split-error-msg').textContent = 'Something went wrong. Please try again.';
+                document.getElementById('split-error-msg').classList.add('show');
+            }
+        });
+
+        document.getElementById('split-reset-btn').addEventListener('click', () => {
+            document.getElementById('split-results').classList.remove('show');
+            document.getElementById('split-upload-area').style.display = 'block';
+            splitJobId = null;
+            dz2.clearFile();
         });
     </script>
 </body>
