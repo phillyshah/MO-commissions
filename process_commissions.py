@@ -12,8 +12,12 @@ import sys
 import os
 import copy
 from openpyxl import load_workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
+
+
+LEFT_ALIGNED_COLS = {"po", "notes", "surgeon", "hospital", "manager"}
+RIGHT_ALIGNED_COLS = {"surgery date", "inv#", "inv date", "due date", "comm $"}
 
 
 REQUIRED_HEADERS = {"manager", "hospital", "distributor", "comm $"}
@@ -55,6 +59,26 @@ def copy_cell(src, dst):
         dst.border = copy.copy(src.border)
         dst.alignment = copy.copy(src.alignment)
         dst.number_format = src.number_format
+
+
+def apply_column_alignment(ws, label_map, header_row_num):
+    """Apply left/right alignment to designated columns for all rows including header."""
+    col_alignments = {}
+    for label, idx in label_map.items():
+        if label in LEFT_ALIGNED_COLS:
+            col_alignments[idx + 1] = "left"   # 1-based column number
+        elif label in RIGHT_ALIGNED_COLS:
+            col_alignments[idx + 1] = "right"
+
+    for row in ws.iter_rows(min_row=header_row_num):
+        for cell in row:
+            if cell.column in col_alignments:
+                existing = cell.alignment or Alignment()
+                cell.alignment = Alignment(
+                    horizontal=col_alignments[cell.column],
+                    vertical=existing.vertical,
+                    wrap_text=existing.wrap_text,
+                )
 
 
 def insert_distributor_subtotals(ws, header_row_num, data_start_row, dist_col_idx, comm_col_idx):
@@ -212,6 +236,9 @@ def process(input_path):
         num_distributors = insert_distributor_subtotals(
             out_ws, header_row_num, data_start, dist_idx, comm_idx
         )
+
+        # Step 6: Apply column alignments
+        apply_column_alignment(out_ws, label_map, header_row_num)
 
         out_filename = f"{manager}-{base_name}.xlsx"
         out_path = os.path.join(input_dir, out_filename)
