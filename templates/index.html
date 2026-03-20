@@ -465,11 +465,11 @@
             </div>
         </div>
 
-        <!-- ── Card 3: Commission Statement Generator ── -->
+        <!-- ── Card 3: PDF Generator ── -->
         <div class="section-gap"></div>
-        <div class="section-label">Step 3 — Commission Statement Generator</div>
+        <div class="section-label">Step 3 — PDF Generator</div>
         <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem; padding-left:2px;">
-            Upload the verified workbook after manager splits are reviewed.
+            Upload the distributor tabs workbook from Step 2 to generate a PDF for each distributor.
         </p>
         <div class="card">
             <div id="upload-area">
@@ -477,7 +477,7 @@
                     <input type="file" id="file-input" accept=".xlsx">
                     <div class="dropzone-icon">📄</div>
                     <div class="dropzone-text">
-                        Drop the verified <strong>.xlsx</strong> workbook here<br>
+                        Drop the <strong>distributor tabs .xlsx</strong> here<br>
                         or click to browse
                     </div>
                 </div>
@@ -488,47 +488,26 @@
                     <button class="remove-btn" id="remove-btn" title="Remove">✕</button>
                 </div>
 
-                <button class="btn btn-primary" id="process-btn" disabled>Generate Statements</button>
+                <button class="btn btn-primary" id="process-btn" disabled>Generate PDFs</button>
                 <div class="error-msg" id="error-msg"></div>
             </div>
 
             <div class="processing" id="processing">
                 <div class="spinner"></div>
-                <p>Generating commission statements...</p>
-                <div class="step">Parsing invoices → Building sheets → Creating PDFs</div>
+                <p>Generating PDFs...</p>
+                <div class="step">Converting distributor tabs → Bundling into zip</div>
             </div>
 
             <div class="results" id="results">
                 <div class="results-header">
                     <div class="check">✓</div>
                     <div class="info">
-                        <h3 id="result-title">Done!</h3>
+                        <h3 id="result-title">PDFs Ready</h3>
                         <p id="result-desc"></p>
                     </div>
                 </div>
 
                 <div class="download-row">
-                    <div class="dl-info">
-                        <span class="dl-icon">📊</span>
-                        <div>
-                            <div class="dl-label">Excel Workbook</div>
-                            <div class="dl-desc">Summary + individual distributor tabs</div>
-                        </div>
-                    </div>
-                    <a href="#" id="dl-xlsx">↓ Download</a>
-                </div>
-
-                <div id="pdf-section">
-                    <button class="btn btn-primary" id="generate-pdf-btn" style="margin-top:1rem;">Generate PDFs</button>
-                </div>
-
-                <div class="processing" id="pdf-processing" style="padding:1.25rem 0;">
-                    <div class="spinner"></div>
-                    <p>Generating PDFs...</p>
-                    <div class="step">Converting sheets → Creating zip</div>
-                </div>
-
-                <div class="download-row" id="zip-row" style="display:none; margin-top:0.6rem;">
                     <div class="dl-info">
                         <span class="dl-icon">📁</span>
                         <div>
@@ -657,11 +636,8 @@
             dzDist.clearFile();
         });
 
-        // ── Card 1: Commission Statement Generator ───────────────────────────
-        let currentJobId = null;
-        let card1File = null;
-
-        const dz1 = makeDropzone(
+        // ── Card 3: PDF Generator ─────────────────────────────────────────────
+        const dz3 = makeDropzone(
             document.getElementById('dropzone'),
             document.getElementById('file-input'),
             document.getElementById('file-info'),
@@ -670,11 +646,11 @@
             document.getElementById('remove-btn'),
             document.getElementById('process-btn'),
             document.getElementById('error-msg'),
-            (f) => { card1File = f; }
+            () => {}
         );
 
         document.getElementById('process-btn').addEventListener('click', async () => {
-            const file = dz1.getFile();
+            const file = dz3.getFile();
             if (!file) return;
 
             document.getElementById('upload-area').style.display = 'none';
@@ -687,7 +663,6 @@
             try {
                 const resp = await fetch('/upload', { method: 'POST', body: formData });
                 const data = await resp.json();
-
                 document.getElementById('processing').classList.remove('show');
 
                 if (data.error) {
@@ -697,15 +672,10 @@
                     return;
                 }
 
-                currentJobId = data.job_id;
+                document.getElementById('result-desc').textContent = `${data.num_pdfs} PDFs generated`;
+                document.getElementById('pdf-count').textContent = `${data.num_pdfs} individual PDFs, zipped`;
+                document.getElementById('dl-zip').href = `/download/${data.job_id}/zip`;
                 document.getElementById('results').classList.add('show');
-                document.getElementById('result-title').textContent = `${data.month} ${data.year} — Excel Ready`;
-                document.getElementById('result-desc').textContent = `${data.num_distributors} distributors · review then generate PDFs`;
-                document.getElementById('dl-xlsx').href = `/download/${data.job_id}/xlsx`;
-                document.getElementById('pdf-section').style.display = 'block';
-                document.getElementById('pdf-processing').classList.remove('show');
-                document.getElementById('zip-row').style.display = 'none';
-                document.getElementById('pdf-error-msg').classList.remove('show');
 
             } catch {
                 document.getElementById('processing').classList.remove('show');
@@ -715,45 +685,10 @@
             }
         });
 
-        document.getElementById('generate-pdf-btn').addEventListener('click', async () => {
-            if (!currentJobId) return;
-            document.getElementById('pdf-section').style.display = 'none';
-            document.getElementById('pdf-processing').classList.add('show');
-            document.getElementById('pdf-error-msg').classList.remove('show');
-
-            try {
-                const resp = await fetch(`/generate-pdfs/${currentJobId}`, { method: 'POST' });
-                const data = await resp.json();
-                document.getElementById('pdf-processing').classList.remove('show');
-
-                if (data.error) {
-                    document.getElementById('pdf-section').style.display = 'block';
-                    document.getElementById('pdf-error-msg').textContent = data.error;
-                    document.getElementById('pdf-error-msg').classList.add('show');
-                    return;
-                }
-
-                document.getElementById('result-title').textContent =
-                    document.getElementById('result-title').textContent.replace('Excel Ready', 'Complete');
-                document.getElementById('result-desc').textContent =
-                    document.getElementById('result-desc').textContent.replace('review then generate PDFs', `${data.num_pdfs} PDFs generated`);
-                document.getElementById('pdf-count').textContent = `${data.num_pdfs} individual PDFs, zipped`;
-                document.getElementById('dl-zip').href = `/download/${currentJobId}/zip`;
-                document.getElementById('zip-row').style.display = 'flex';
-
-            } catch {
-                document.getElementById('pdf-processing').classList.remove('show');
-                document.getElementById('pdf-section').style.display = 'block';
-                document.getElementById('pdf-error-msg').textContent = 'PDF generation failed. Please try again.';
-                document.getElementById('pdf-error-msg').classList.add('show');
-            }
-        });
-
         document.getElementById('reset-btn').addEventListener('click', () => {
             document.getElementById('results').classList.remove('show');
             document.getElementById('upload-area').style.display = 'block';
-            currentJobId = null;
-            dz1.clearFile();
+            dz3.clearFile();
         });
 
         // ── Card 2: Manager Commission Split ─────────────────────────────────

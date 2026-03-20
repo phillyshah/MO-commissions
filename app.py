@@ -744,6 +744,7 @@ def download_dist_tabs(job_id, filetype):
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    """Step 3: accept a distributor-tabs xlsx and immediately generate PDFs."""
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     f = request.files["file"]
@@ -754,33 +755,20 @@ def upload():
     input_path = os.path.join(job_dir, secure_filename(f.filename))
     f.save(input_path)
     try:
-        result = process_excel(input_path, job_dir)
+        result = generate_distributor_tab_pdfs(job_dir)
         return jsonify({"success": True, "job_id": job_id, **result})
     except Exception as e:
         shutil.rmtree(job_dir, ignore_errors=True)
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/generate-pdfs/<job_id>", methods=["POST"])
-def generate_pdfs_route(job_id):
-    job_dir = os.path.join(app.config["OUTPUT_FOLDER"], job_id)
-    if not os.path.exists(job_dir):
-        return jsonify({"error": "Job not found"}), 404
-    try:
-        result = generate_pdfs(job_dir)
-        return jsonify({"success": True, **result})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/download/<job_id>/<filetype>")
-def download(job_id, filetype):
+@app.route("/download/<job_id>/zip")
+def download(job_id):
     job_dir = os.path.join(app.config["OUTPUT_FOLDER"], job_id)
     if not os.path.exists(job_dir):
         return "File not found", 404
-    ext = ".xlsx" if filetype == "xlsx" else ".zip"
     for f in os.listdir(job_dir):
-        if f.endswith(ext):
+        if f.endswith(".zip"):
             return send_file(os.path.join(job_dir, f), as_attachment=True, download_name=f)
     return "File not found", 404
 
