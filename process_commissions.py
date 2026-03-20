@@ -1,21 +1,19 @@
 """
 process_commissions.py — MO Commission Report Processor
 
-Usage:
-    python process_commissions.py <input.xlsx>
+Provides shared helpers for:
+  - Step 1: Splitting a masterlog by manager into per-manager workbooks
+  - Step 2: Generating one distributor tab per unique Distrib Code,
+            plus a Summary sheet with per-distributor totals
 
-Produces one output .xlsx per manager found in the Summary sheet.
-Each workbook contains:
-  - Summary sheet (manager's rows + distributor subtotals)
-  - Surgeon lookup sheet (preserved)
-  - template sheet (preserved)
-  - One distributor tab per unique Distrib Code, built from the template sheet
+Usage (CLI):
+    python process_commissions.py <input.xlsx>
 """
 
 import sys
 import os
 import copy
-import io
+import tempfile
 import subprocess
 import shutil
 from datetime import datetime
@@ -28,126 +26,141 @@ from openpyxl.cell.cell import MergedCell
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SHEET HELPERS
+# WORKBOOK / SHEET HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_sheet_ci(wb, name):
     """Case-insensitive sheet lookup. Returns the worksheet or None."""
-    name_lower = name.lower()
+    target = name.lower()
     for sname in wb.sheetnames:
-        if sname.lower() == name_lower:
+        if sname.lower() == target:
             return wb[sname]
     return None
 
 
 def keep_sheets_ci(wb, keep_names):
-    """Delete all sheets whose names don't match any name in keep_names (case-insensitive)."""
-    keep_lower = {n.lower() for n in keep_names}
+    """Delete every sheet whose name is NOT in *keep_names* (case-insensitive)."""
+    keep = {n.lower() for n in keep_names}
     for sname in list(wb.sheetnames):
-        if sname.lower() not in keep_lower:
+        if sname.lower() not in keep:
             del wb[sname]
 
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+def copy_cell(src, dst):
+    """Copy value + full style from *src* cell to *dst* cell."""
+    dst.value = src.value
+    if src.has_style:
+        dst.font          = copy.copy(src.font)
+        dst.fill          = copy.copy(src.fill)
+        dst.border        = copy.copy(src.border)
+        dst.alignment     = copy.copy(src.alignment)
+        dst.number_format = src.number_format
 
-# Summary sheet alignment rules
+
+# ── Reusable style constants ─────────────────────────────────────────────────
+
+NO_FILL      = PatternFill(fill_type=None)
+CLEAR_BORDER = Border()
+THIN_SIDE    = Side(style="thin")
+
+# Masterlog alignment rules (column-label → horizontal alignment)
 LEFT_COLS  = {"po", "notes", "surgeon", "hospital", "manager"}
 RIGHT_COLS = {"surgery date", "inv#", "inv date", "due date", "comm $"}
 
-# Style constants
-NO_FILL     = PatternFill(fill_type=None)
-CLEAR_BORDER = Border()
+# Masterlog → template column-label aliases
+SUMMARY_TO_TEMPLATE = {"hospital": "hospital or mc"}
 
-# Summary → Template column label aliases
-SUMMARY_TO_TEMPLATE = {
-    "hospital": "hospital or mc",
-}
-
-# Summary columns with no template equivalent (skip when writing distributor tabs)
+# Masterlog columns that have no template equivalent
 SUMMARY_SKIP = {"manager", "distrib code", "distributor", "status", "date pd"}
 
-# Sheets to carry forward into each manager workbook (Step 1 — simple split)
+# Sheets kept in each per-manager workbook (Step 1)
 KEEP_SHEETS = {"masterlog"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SUMMARY SHEET HELPERS
+# MASTERLOG HEADER & META DETECTION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def find_summary_header(sheet):
     """
-    Scan from top to find the Summary header row.
-    Must contain: Manager, Hospital, Comm $, and either Distributor or Distrib Code.
-    Returns (1-based row num, {normalized_label: 0-based col index}).
+    Locate the masterlog header row by scanning for required column labels:
+    Manager, Hospital, Comm $, and either Distributor or Distrib Code.
+
+    Returns (1-based row number, {normalised_label: 0-based col index}),
+    or (None, None) if not found.
     """
-    REQUIRED_FIXED = {"manager", "hospital", "comm $"}
-    DIST_OPTIONS   = {"distributor", "distrib code"}
+    REQUIRED = {"manager", "hospital", "comm $"}
+    DIST_ALT = {"distributor", "distrib code"}
 
     for row in sheet.iter_rows():
-        values = [str(c.value).strip().lower() if c.value is not None else "" for c in row]
-        val_set = set(values)
-        if REQUIRED_FIXED.issubset(val_set) and DIST_OPTIONS.intersection(val_set):
-            return row[0].row, {v: i for i, v in enumerate(values)}
+        vals = [str(c.value).strip().lower() if c.value is not None else "" for c in row]
+        s = set(vals)
+        if REQUIRED.issubset(s) and DIST_ALT.intersection(s):
+            return row[0].row, {v: i for i, v in enumerate(vals)}
     return None, None
 
 
 def scan_summary_meta(sheet, header_row_num):
     """
-    Scan rows above the header for Title: and Pay Date: label/value pairs.
-    Returns (title_str, pay_date_value).
+    Read Title: and Pay Date: values from rows above the header.
+    Returns (title_str | None, pay_date_value | None).
     """
-    title_val    = None
-    pay_date_val = None
-
+    title = pay_date = None
     for row in sheet.iter_rows(min_row=1, max_row=header_row_num - 1):
         cells = list(row)
         for i, cell in enumerate(cells):
             if cell.value is None:
                 continue
             label = str(cell.value).strip().lower()
-            if label == "title:":
+            if label in ("title:", "pay date:"):
+                # value is in the next non-empty cell to the right
                 for j in range(i + 1, len(cells)):
                     if cells[j].value is not None:
-                        title_val = str(cells[j].value).strip()
+                        if label == "title:":
+                            title = str(cells[j].value).strip()
+                        else:
+                            pay_date = cells[j].value
                         break
-            elif label == "pay date:":
-                for j in range(i + 1, len(cells)):
-                    if cells[j].value is not None:
-                        pay_date_val = cells[j].value
-                        break
-
-    return title_val, pay_date_val
+    return title, pay_date
 
 
 def is_legacy_subtotal(row_cells, po_idx):
-    """Return True if this row is a legacy subtotal (bold 'Total…' string in PO cell)."""
+    """Return True if this row is a legacy subtotal (bold 'Total…' in the PO cell)."""
     cell = row_cells[po_idx]
-    val  = cell.value
-    if val is None:
+    if cell.value is None:
         return False
-    val_str = str(val).strip()
-    if val_str.lower().startswith("total"):
-        cleaned = (val_str.replace(",", "").replace(".", "")
-                   .replace("Total", "").replace("total", "")
-                   .strip().lstrip("-"))
-        if not cleaned.isnumeric() and cell.font and cell.font.bold:
-            return True
-    return False
+    text = str(cell.value).strip()
+    if not text.lower().startswith("total"):
+        return False
+    cleaned = (text.replace(",", "").replace(".", "")
+               .replace("Total", "").replace("total", "")
+               .strip().lstrip("-"))
+    return not cleaned.isnumeric() and cell.font and cell.font.bold
 
 
-def copy_cell(src, dst):
-    """Copy value and full style from src to dst cell."""
-    dst.value = src.value
-    if src.has_style:
-        dst.font         = copy.copy(src.font)
-        dst.fill         = copy.copy(src.fill)
-        dst.border       = copy.copy(src.border)
-        dst.alignment    = copy.copy(src.alignment)
-        dst.number_format = src.number_format
+def collect_data_rows(sheet, header_row_num, hosp_idx, po_idx):
+    """
+    Return data rows below the header, skipping blanks and legacy subtotals.
+    Each element is a list of openpyxl Cell objects for that row.
+    """
+    rows = []
+    for row in list(sheet.iter_rows())[header_row_num:]:
+        cells = list(row)
+        hosp = cells[hosp_idx].value if hosp_idx < len(cells) else None
+        if not hosp or not str(hosp).strip():
+            continue
+        if po_idx is not None and is_legacy_subtotal(cells, po_idx):
+            continue
+        rows.append(cells)
+    return rows
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ALIGNMENT & SUBTOTALS (used by Step 1 manager-split)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def apply_summary_alignment(ws, label_map, header_row_num):
-    """Apply left/right alignment rules to all rows including the header."""
+    """Apply left/right alignment to every data cell based on column label."""
     col_align = {}
     for label, idx in label_map.items():
         if label in LEFT_COLS:
@@ -158,63 +171,57 @@ def apply_summary_alignment(ws, label_map, header_row_num):
     for row in ws.iter_rows(min_row=header_row_num):
         for cell in row:
             if cell.column in col_align:
-                ex = cell.alignment or Alignment()
+                prev = cell.alignment or Alignment()
                 cell.alignment = Alignment(
                     horizontal=col_align[cell.column],
-                    vertical=ex.vertical,
-                    wrap_text=ex.wrap_text,
+                    vertical=prev.vertical,
+                    wrap_text=prev.wrap_text,
                 )
 
 
 def insert_distributor_subtotals(ws, header_row_num, data_start_row,
                                   dist_col_0idx, comm_col_0idx):
     """
-    Group data rows by consecutive distributor code and insert subtotal rows.
-    Returns count of distinct groups.
+    Group consecutive rows by distributor code and insert SUM subtotal rows.
+    Returns the number of distinct groups written.
     """
-    # Collect existing data
-    data_rows = []
+    # Read existing data
+    data = []
     for row in ws.iter_rows(min_row=data_start_row):
-        data_rows.append([cell.value for cell in row])
+        data.append([cell.value for cell in row])
 
-    # Build consecutive groups
+    # Build consecutive blocks
     blocks = []
-    for row_data in data_rows:
-        dist_val = row_data[dist_col_0idx] if dist_col_0idx < len(row_data) else None
-        dist_key = str(dist_val).strip() if dist_val else ""
-        if blocks and blocks[-1][0] == dist_key:
+    for row_data in data:
+        key = str(row_data[dist_col_0idx]).strip() if dist_col_0idx < len(row_data) and row_data[dist_col_0idx] else ""
+        if blocks and blocks[-1][0] == key:
             blocks[-1][1].append(row_data)
         else:
-            blocks.append((dist_key, [row_data]))
+            blocks.append((key, [row_data]))
 
-    # Clear existing data area
+    # Clear and rewrite with subtotals
     for row in ws.iter_rows(min_row=data_start_row):
         for cell in row:
             cell.value = None
 
-    current_row      = data_start_row
-    comm_col_letter  = get_column_letter(comm_col_0idx + 1)
+    cur = data_start_row
+    comm_letter = get_column_letter(comm_col_0idx + 1)
 
-    for dist_code, rows in blocks:
-        group_start = current_row
-        for row_data in rows:
-            for ci, val in enumerate(row_data):
-                ws.cell(row=current_row, column=ci + 1).value = val
-            current_row += 1
-        group_end = current_row - 1
+    for code, rows in blocks:
+        start = cur
+        for rd in rows:
+            for ci, val in enumerate(rd):
+                ws.cell(row=cur, column=ci + 1).value = val
+            cur += 1
+        end = cur - 1
+        cur += 1  # blank row
 
-        current_row += 1  # blank row before subtotal
-
-        dist_c = ws.cell(row=current_row, column=dist_col_0idx + 1)
-        dist_c.value = f"Total {dist_code}"
-        dist_c.font  = Font(bold=True)
-
-        comm_c = ws.cell(row=current_row, column=comm_col_0idx + 1)
-        comm_c.value  = f"=SUM({comm_col_letter}{group_start}:{comm_col_letter}{group_end})"
-        comm_c.font   = Font(bold=True)
-        comm_c.number_format = "#,##0.00"
-
-        current_row += 2  # subtotal row + trailing blank row
+        ws.cell(row=cur, column=dist_col_0idx + 1, value=f"Total {code}").font = Font(bold=True)
+        tc = ws.cell(row=cur, column=comm_col_0idx + 1)
+        tc.value = f"=SUM({comm_letter}{start}:{comm_letter}{end})"
+        tc.font = Font(bold=True)
+        tc.number_format = "#,##0.00"
+        cur += 2  # subtotal + trailing blank
 
     return len(blocks)
 
@@ -225,47 +232,41 @@ def insert_distributor_subtotals(ws, header_row_num, data_start_row,
 
 def build_surgeon_lookup(wb):
     """
-    Build {distrib_code: {name, contact}} from the 'Surgeon lookup' sheet.
-    Uses the first matching row for each code.
+    Build {distrib_code: {"name": …, "contact": …}} from the Surgeon lookup sheet.
+    First matching row per code wins.  Returns {} if the sheet is missing.
     """
-    if "Surgeon lookup" not in wb.sheetnames:
+    ws = get_sheet_ci(wb, "Surgeon lookup")
+    if ws is None:
         return {}
 
-    ws = wb["Surgeon lookup"]
     REQUIRED = {"distrib code", "distributor", "contact"}
-    header_row_num = None
-    label_map = {}
-
+    hdr_row = None
+    lmap = {}
     for row in ws.iter_rows():
-        values = [str(c.value).strip().lower() if c.value else "" for c in row]
-        if REQUIRED.issubset(set(values)):
-            header_row_num = row[0].row
-            label_map = {v: i for i, v in enumerate(values)}
+        vals = [str(c.value).strip().lower() if c.value else "" for c in row]
+        if REQUIRED.issubset(set(vals)):
+            hdr_row = row[0].row
+            lmap = {v: i for i, v in enumerate(vals)}
             break
-
-    if header_row_num is None:
+    if hdr_row is None:
         return {}
 
-    ci  = label_map["distrib code"]
-    ni  = label_map["distributor"]
-    coi = label_map["contact"]
-
+    ci, ni, coi = lmap["distrib code"], lmap["distributor"], lmap["contact"]
     lookup = {}
-    for row in ws.iter_rows(min_row=header_row_num + 1, max_row=ws.max_row):
+    for row in ws.iter_rows(min_row=hdr_row + 1, max_row=ws.max_row):
         cells = list(row)
-        code  = cells[ci].value if ci < len(cells) else None
+        code = cells[ci].value if ci < len(cells) else None
         if not code:
             continue
         code = str(code).strip()
         if code in lookup:
-            continue  # first match only
+            continue
         name    = cells[ni].value  if ni  < len(cells) else None
         contact = cells[coi].value if coi < len(cells) else None
         lookup[code] = {
             "name":    str(name).strip()    if name    else "",
             "contact": str(contact).strip() if contact else "",
         }
-
     return lookup
 
 
@@ -276,21 +277,20 @@ def build_surgeon_lookup(wb):
 def find_template_header(ws):
     """
     Find the template header row (must contain 'Inv #' and 'Comm $').
-    Returns (1-based row num, {normalized_label: 0-based col index}).
+    Returns (1-based row, {label: 0-based col}) or (None, None).
     """
     REQUIRED = {"inv #", "comm $"}
     for row in ws.iter_rows():
-        values = [str(c.value).strip().lower() if c.value else "" for c in row]
-        if REQUIRED.issubset(set(values)):
-            return row[0].row, {v: i for i, v in enumerate(values)}
+        vals = [str(c.value).strip().lower() if c.value else "" for c in row]
+        if REQUIRED.issubset(set(vals)):
+            return row[0].row, {v: i for i, v in enumerate(vals)}
     return None, None
 
 
 def scan_template_placeholders(ws, header_row_num):
     """
-    Scan rows above the header for placeholder cells matching known keys.
-    Returns {lower_key: (row, 1-based col)}.
-    Keys: "distributor", "distrib code", "contact", "title", "=summary!b2"
+    Scan rows above the header for placeholder cells.
+    Returns {lower_key: (row, 1-based col)} for known keys.
     """
     KEYS = {"distributor", "distrib code", "contact", "title", "=summary!b2"}
     result = {}
@@ -306,15 +306,15 @@ def scan_template_placeholders(ws, header_row_num):
 
 def get_template_preformatted_rows(ws, header_row_num):
     """
-    Find pre-formatted (bordered) empty data rows below the header.
+    Find bordered-but-empty placeholder rows below the header.
     Returns list of 1-based row numbers; stops at first unbordered row.
     """
     rows = []
     for row in ws.iter_rows(min_row=header_row_num + 1, max_row=ws.max_row):
         has_border = any(
-            (not isinstance(c, MergedCell) and c.border and
-             (c.border.left.style or c.border.right.style or
-              c.border.top.style  or c.border.bottom.style))
+            not isinstance(c, MergedCell) and c.border and
+            (c.border.left.style or c.border.right.style or
+             c.border.top.style  or c.border.bottom.style)
             for c in row
         )
         if has_border:
@@ -325,57 +325,51 @@ def get_template_preformatted_rows(ws, header_row_num):
 
 
 def capture_row_borders(ws, row_num):
-    """Return {1-based col: Border copy} for all cells in row_num."""
-    result = {}
-    for cell in next(ws.iter_rows(min_row=row_num, max_row=row_num)):
-        if not isinstance(cell, MergedCell):
-            result[cell.column] = copy.copy(cell.border) if cell.border else CLEAR_BORDER
-    return result
+    """Return {1-based col: Border} for every non-merged cell in *row_num*."""
+    return {
+        cell.column: copy.copy(cell.border) if cell.border else CLEAR_BORDER
+        for cell in next(ws.iter_rows(min_row=row_num, max_row=row_num))
+        if not isinstance(cell, MergedCell)
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB NAME LOGIC
+# TAB NAME & COLUMN MAPPING
 # ══════════════════════════════════════════════════════════════════════════════
 
 def make_tab_name(code, dist_name, existing_names):
     """
-    Build a sheet tab name ≤ 31 chars: '{code} ({first N chars of name})'.
-    Always includes the full code; truncates name suffix to fit.
-    Deduplicates against existing_names.
+    Build a sheet tab name <= 31 chars: '{code} ({name_prefix})'.
+    Deduplicates against *existing_names*.
     """
     suffix    = dist_name[:7] if dist_name else code
     candidate = f"{code} ({suffix})"
     if len(candidate) > 31:
-        max_suffix = 31 - len(code) - 3   # 3 = len(" ()")
-        candidate  = f"{code} ({dist_name[:max(max_suffix, 0)]})"
+        room = max(31 - len(code) - 3, 0)   # 3 = len(" ()")
+        candidate = f"{code} ({dist_name[:room]})"
     candidate = candidate[:31]
 
-    base = candidate
-    n    = 2
+    base, n = candidate, 2
     while candidate in existing_names:
         ext       = f"_{n}"
         candidate = base[:31 - len(ext)] + ext
         n += 1
-
     return candidate
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# COLUMN MAPPING (Summary → Template)
-# ══════════════════════════════════════════════════════════════════════════════
-
 def build_column_map(summary_label_map, template_label_map):
     """
-    Returns list of (sum_0idx, tmpl_0idx) for columns present in both sheets.
-    Applies label aliases; skips SUMMARY_SKIP columns.
+    Map masterlog columns to template columns.
+    Returns [(sum_0idx, tmpl_0idx), …] for columns present in both sheets,
+    applying label aliases and skipping SUMMARY_SKIP columns.
     """
     mapping = []
-    for sum_label, sum_0idx in summary_label_map.items():
-        if sum_label in SUMMARY_SKIP:
+    for label, s_idx in summary_label_map.items():
+        if label in SUMMARY_SKIP:
             continue
-        tmpl_label = SUMMARY_TO_TEMPLATE.get(sum_label, sum_label)
-        if tmpl_label in template_label_map:
-            mapping.append((sum_0idx, template_label_map[tmpl_label]))
+        t_label = SUMMARY_TO_TEMPLATE.get(label, label)
+        if t_label in template_label_map:
+            mapping.append((s_idx, template_label_map[t_label]))
     return mapping
 
 
@@ -388,122 +382,94 @@ def populate_distributor_tab(ws, tmpl_header_row, tmpl_label_map, placeholders,
                               dist_code, dist_name, contact, title, pay_date,
                               row_cells_list, summary_label_map):
     """
-    Populate a copied template sheet with one distributor's data.
-    Steps: clear template grid → fill placeholders → write rows → total row → page setup.
+    Fill a copied template sheet with one distributor's data.
     Returns (n_data_rows, total_row_num).
     """
-    # 1. Clear pre-formatted data rows (value, border, font)
+    # ── 1. Clear pre-formatted placeholder rows ──
     for r in preformatted_rows:
         for col in range(1, ws.max_column + 1):
             c = ws.cell(row=r, column=col)
-            if isinstance(c, MergedCell):
-                continue
-            c.value  = None
-            c.border = CLEAR_BORDER
-            c.font   = Font()
+            if not isinstance(c, MergedCell):
+                c.value  = None
+                c.border = CLEAR_BORDER
+                c.font   = Font()
 
-    # 2. Clear any stale =SUM formulas below the header
+    # ── 2. Clear stale =SUM formulas below the header ──
     for row in ws.iter_rows(min_row=tmpl_header_row + 1, max_row=ws.max_row):
         for c in row:
-            if (not isinstance(c, MergedCell) and c.value
-                    and isinstance(c.value, str)
+            if (not isinstance(c, MergedCell) and isinstance(c.value, str)
                     and c.value.upper().startswith("=SUM")):
                 c.value = None
 
-    # 3. Populate header placeholders
-    def _set(key, value, num_fmt=None):
-        if key not in placeholders:
-            return
-        r, col_ = placeholders[key]
-        c = ws.cell(row=r, column=col_)
-        c.value = value
-        c.fill  = NO_FILL
-        if num_fmt:
-            c.number_format = num_fmt
+    # ── 3. Fill header placeholders ──
+    for key, value in [("distributor", dist_name), ("distrib code", dist_code),
+                       ("contact", contact), ("title", title)]:
+        if key in placeholders:
+            r, col = placeholders[key]
+            cell = ws.cell(row=r, column=col)
+            cell.value = value
+            cell.fill  = NO_FILL
 
-    _set("distributor",  dist_name)
-    _set("distrib code", dist_code)
-    _set("contact",      contact)
-    _set("title",        title)
-
-    # Pay date — replace =Summary!B2 formula with actual value
     if "=summary!b2" in placeholders:
-        r, col_ = placeholders["=summary!b2"]
-        c = ws.cell(row=r, column=col_)
-        if isinstance(pay_date, datetime):
-            c.value = pay_date
-        elif pay_date:
-            c.value = pay_date
-        c.number_format = "mm/dd/yyyy"
-        c.fill = NO_FILL
+        r, col = placeholders["=summary!b2"]
+        cell = ws.cell(row=r, column=col)
+        cell.value = pay_date
+        cell.number_format = "mm/dd/yyyy"
+        cell.fill = NO_FILL
 
-    # 4. Write data rows
-    col_map             = build_column_map(summary_label_map, tmpl_label_map)
-    tmpl_0idx_to_label  = {v: k for k, v in tmpl_label_map.items()}
-    comm_tmpl_0idx      = tmpl_label_map.get("comm $")
-    hosp_tmpl_0idx      = tmpl_label_map.get("hospital or mc")
+    # ── 4. Write data rows ──
+    col_map        = build_column_map(summary_label_map, tmpl_label_map)
+    idx_to_label   = {v: k for k, v in tmpl_label_map.items()}
+    comm_0idx      = tmpl_label_map.get("comm $")
+    hosp_0idx      = tmpl_label_map.get("hospital or mc")
 
     write_row      = tmpl_header_row + 1
-    data_start_row = write_row
+    data_start     = write_row
     max_hosp_len   = len("Hospital or MC")
 
     for src_cells in row_cells_list:
-        for sum_0idx, tmpl_0idx in col_map:
-            if sum_0idx >= len(src_cells):
+        for s_idx, t_idx in col_map:
+            if s_idx >= len(src_cells):
                 continue
-            src_cell = src_cells[sum_0idx]
-            dst_c    = ws.cell(row=write_row, column=tmpl_0idx + 1)
-            dst_c.value = src_cell.value
+            src = src_cells[s_idx]
+            dst = ws.cell(row=write_row, column=t_idx + 1)
+            dst.value = src.value
 
-            # Preserve source number format (dates, currency, etc.)
-            if src_cell.has_style and src_cell.number_format:
-                dst_c.number_format = src_cell.number_format
+            if src.has_style and src.number_format:
+                dst.number_format = src.number_format
+            if t_idx + 1 in first_row_borders:
+                dst.border = copy.copy(first_row_borders[t_idx + 1])
 
-            # Border from template's first data row
-            if tmpl_0idx + 1 in first_row_borders:
-                dst_c.border = copy.copy(first_row_borders[tmpl_0idx + 1])
+            label = idx_to_label.get(t_idx, "")
+            dst.alignment = Alignment(
+                horizontal="center" if label in {"comm %", "comm $"} else "left"
+            )
 
-            # Alignment: center Comm % / Comm $; left-align everything else
-            tmpl_label = tmpl_0idx_to_label.get(tmpl_0idx, "")
-            if tmpl_label in {"comm %", "comm $"}:
-                dst_c.alignment = Alignment(horizontal="center")
-            else:
-                dst_c.alignment = Alignment(horizontal="left")
-
-            # Track longest Hospital value for auto-sizing
-            if hosp_tmpl_0idx is not None and tmpl_0idx == hosp_tmpl_0idx:
-                val_len      = len(str(src_cell.value)) if src_cell.value else 0
-                max_hosp_len = max(max_hosp_len, val_len)
-
+            if t_idx == hosp_0idx:
+                max_hosp_len = max(max_hosp_len, len(str(src.value or "")))
         write_row += 1
 
-    data_end_row = write_row - 1
-    n_data_rows  = max(data_end_row - data_start_row + 1, 0)
+    data_end    = write_row - 1
+    n_data_rows = max(data_end - data_start + 1, 0)
 
-    # 5. Auto-size Hospital column
-    if hosp_tmpl_0idx is not None:
-        col_letter = get_column_letter(hosp_tmpl_0idx + 1)
-        ws.column_dimensions[col_letter].width = max_hosp_len + 2
+    # ── 5. Auto-size Hospital column ──
+    if hosp_0idx is not None:
+        ws.column_dimensions[get_column_letter(hosp_0idx + 1)].width = max_hosp_len + 2
 
-    # 6. Total row (one blank row gap, then totals)
-    total_row = data_end_row + 2
-    if comm_tmpl_0idx is not None:
-        comm_col_letter = get_column_letter(comm_tmpl_0idx + 1)
+    # ── 6. Total row ──
+    total_row = data_end + 2
+    if comm_0idx is not None:
+        comm_letter = get_column_letter(comm_0idx + 1)
+        if comm_0idx >= 1:
+            lbl = ws.cell(row=total_row, column=comm_0idx)
+            lbl.value = "Total Comm $"
+            lbl.font  = Font(bold=True)
+        tc = ws.cell(row=total_row, column=comm_0idx + 1)
+        tc.value        = f"=SUM({comm_letter}{data_start}:{comm_letter}{data_end})"
+        tc.font         = Font(bold=True)
+        tc.number_format = "#,##0.00"
 
-        # Label in the column immediately before Comm $
-        label_col = comm_tmpl_0idx  # 1-based = comm_tmpl_0idx (== 0-based comm - 1 + 1)
-        if label_col >= 1:
-            lbl_c       = ws.cell(row=total_row, column=label_col)
-            lbl_c.value = "Total Comm $"
-            lbl_c.font  = Font(bold=True)
-
-        # SUM formula in Comm $ column
-        sum_c              = ws.cell(row=total_row, column=comm_tmpl_0idx + 1)
-        sum_c.value        = f"=SUM({comm_col_letter}{data_start_row}:{comm_col_letter}{data_end_row})"
-        sum_c.font         = Font(bold=True)
-        sum_c.number_format = "#,##0.00"
-
-    # 7. Page setup
+    # ── 7. Page setup ──
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth  = 1
     ws.page_setup.fitToHeight = 0
@@ -516,62 +482,53 @@ def populate_distributor_tab(ws, tmpl_header_row, tmpl_label_map, placeholders,
 # GENERATE DISTRIBUTOR TABS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def generate_distributor_tabs(out_wb, manager_rows, dist_col_0idx,
+def generate_distributor_tabs(out_wb, data_rows, dist_col_0idx,
                                summary_label_map, title, pay_date, surgeon_lookup):
     """
-    Add distributor tabs to out_wb (which must contain a 'template' sheet).
-    manager_rows: list of row-cell-lists for the current manager.
-    Returns count of tabs generated.
+    Add one tab per unique Distrib Code to *out_wb* (must contain a 'template' sheet).
+    Returns the number of tabs created.
     """
-    if "template" not in out_wb.sheetnames:
+    tmpl_ws = get_sheet_ci(out_wb, "template")
+    if tmpl_ws is None:
         print("  Warning: no 'template' sheet — skipping distributor tabs")
         return 0
 
-    tmpl_ws = out_wb["template"]
     tmpl_header_row, tmpl_label_map = find_template_header(tmpl_ws)
     if tmpl_header_row is None:
-        print("  Warning: could not find template header row — skipping distributor tabs")
+        print("  Warning: could not find template header — skipping distributor tabs")
         return 0
 
     placeholders      = scan_template_placeholders(tmpl_ws, tmpl_header_row)
     preformatted_rows = get_template_preformatted_rows(tmpl_ws, tmpl_header_row)
-    first_row_borders = (capture_row_borders(tmpl_ws, preformatted_rows[0])
-                         if preformatted_rows else {})
+    first_row_borders = capture_row_borders(tmpl_ws, preformatted_rows[0]) if preformatted_rows else {}
 
-    # Group rows by Distrib Code, preserving order of first appearance
+    # Group rows by Distrib Code (order of first appearance)
     groups = []
     seen   = {}
-    for row_cells in manager_rows:
-        code_val = (row_cells[dist_col_0idx].value
-                    if dist_col_0idx < len(row_cells) else None)
-        code = str(code_val).strip() if code_val else ""
+    for cells in data_rows:
+        val  = cells[dist_col_0idx].value if dist_col_0idx < len(cells) else None
+        code = str(val).strip() if val else ""
         if not code:
             continue
         if code in seen:
-            groups[seen[code]][1].append(row_cells)
+            groups[seen[code]][1].append(cells)
         else:
             seen[code] = len(groups)
-            groups.append((code, [row_cells]))
+            groups.append((code, [cells]))
 
-    # Pre-read template image bytes and write to temp files.
-    # PIL closes BytesIO objects after opening them (via __del__), so using
-    # file paths lets PIL reliably reopen each image on every call to _data().
-    import tempfile
-    template_images   = []   # list of (tmp_file_path, anchor)
-    tmpl_image_temps  = []   # keep file paths for cleanup
-
+    # Pre-read template images to temp files (workaround for PIL closing BytesIO)
+    template_images = []
+    tmp_paths       = []
     for img in list(tmpl_ws._images):
         try:
-            raw = img._data()
+            raw    = img._data()
             suffix = ".png" if raw[:4] == b"\x89PNG" else ".jpg"
-            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            tmp    = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
             tmp.write(raw)
             tmp.close()
             template_images.append((tmp.name, img.anchor))
-            tmpl_image_temps.append(tmp.name)
-            # Fix the template sheet's own image ref to use the file path
-            # so it also writes correctly when the workbook is saved
-            img.ref = tmp.name
+            tmp_paths.append(tmp.name)
+            img.ref = tmp.name  # fix template's own image ref for save()
         except Exception as e:
             print(f"  Warning: could not extract template image: {e}")
 
@@ -581,44 +538,37 @@ def generate_distributor_tabs(out_wb, manager_rows, dist_col_0idx,
     for dist_code, rows in groups:
         info      = surgeon_lookup.get(dist_code, {})
         dist_name = info.get("name", dist_code)
+        contact   = info.get("contact", "")
         if not info:
-            print(f"  Warning: no lookup entry for '{dist_code}' — using code as name")
-        contact = info.get("contact", "")
+            print(f"  Warning: no lookup entry for '{dist_code}'")
 
         tab_name = make_tab_name(dist_code, dist_name, existing_names)
         existing_names.add(tab_name)
 
-        # Create tab by copying the template (in-workbook copy)
-        if tab_name in out_wb.sheetnames:
-            new_ws = out_wb[tab_name]
-        else:
-            new_ws       = out_wb.copy_worksheet(tmpl_ws)
-            new_ws.title = tab_name
+        # Copy template sheet, then manually add images (copy_worksheet skips them)
+        new_ws       = out_wb.copy_worksheet(tmpl_ws)
+        new_ws.title = tab_name
+        for path, anchor in template_images:
+            try:
+                ni        = XlImage(path)
+                ni.anchor = anchor
+                new_ws.add_image(ni)
+            except Exception as e:
+                print(f"  Warning: could not copy image for '{tab_name}': {e}")
 
-            # copy_worksheet does not copy images — add from temp file paths
-            for tmp_path, img_anchor in template_images:
-                try:
-                    new_img        = XlImage(tmp_path)
-                    new_img.anchor = img_anchor
-                    new_ws.add_image(new_img)
-                except Exception as e:
-                    print(f"  Warning: could not copy image for '{tab_name}': {e}")
-
-        n_rows, total_row = populate_distributor_tab(
+        n, total_row = populate_distributor_tab(
             new_ws, tmpl_header_row, tmpl_label_map, placeholders,
             preformatted_rows, first_row_borders,
             dist_code, dist_name, contact, title, pay_date,
             rows, summary_label_map,
         )
-        print(f"  Tab '{tab_name}': {n_rows} data rows, SUM at row {total_row}")
+        print(f"  Tab '{tab_name}': {n} rows, SUM at row {total_row}")
         count += 1
 
-    # Temp files are kept alive until after save() is called by the caller;
-    # caller is responsible for cleanup, or they self-clean on process exit.
-    # Store refs on the workbook object so they outlive this function.
+    # Store temp-file paths on the workbook for cleanup after save()
     if not hasattr(out_wb, "_tmp_image_files"):
         out_wb._tmp_image_files = []
-    out_wb._tmp_image_files.extend(tmpl_image_temps)
+    out_wb._tmp_image_files.extend(tmp_paths)
 
     return count
 
@@ -628,7 +578,7 @@ def generate_distributor_tabs(out_wb, manager_rows, dist_col_0idx,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def convert_to_pdf(xlsx_path):
-    """Convert xlsx to PDF via LibreOffice headless. Returns pdf path or None."""
+    """Convert *xlsx_path* to PDF via LibreOffice headless.  Returns pdf path or None."""
     out_dir = os.path.dirname(xlsx_path)
     lo_home = os.path.join(out_dir, ".lo_home")
     os.makedirs(lo_home, exist_ok=True)
@@ -643,61 +593,67 @@ def convert_to_pdf(xlsx_path):
         pass
     finally:
         shutil.rmtree(lo_home, ignore_errors=True)
-    pdf_path = os.path.splitext(xlsx_path)[0] + ".pdf"
-    return pdf_path if os.path.exists(pdf_path) else None
+    pdf = os.path.splitext(xlsx_path)[0] + ".pdf"
+    return pdf if os.path.exists(pdf) else None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — SUMMARY TAB
+# STEP 2 — SUMMARY TAB (per-distributor totals)
 # ══════════════════════════════════════════════════════════════════════════════
+
+# Shared font for the Summary sheet — 12-point for readability when printed
+_SUMM_FONT      = Font(size=12)
+_SUMM_FONT_BOLD = Font(size=12, bold=True)
+_SUMM_FONT_HDR  = Font(size=12, bold=True)
+_SUMM_FONT_TTL  = Font(size=14, bold=True)
+
 
 def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
     """
     Insert a 'Summary' sheet at position 0 with per-distributor commission totals.
 
-    group_summaries: list of (dist_code, dist_name, n_rows, total_comm)
+    *group_summaries*: list of (dist_code, dist_name, n_surgeries, total_comm)
     Returns the new worksheet.
     """
     ws = out_wb.create_sheet("Summary", 0)
 
-    ws.column_dimensions['A'].width = 14
-    ws.column_dimensions['B'].width = 36
-    ws.column_dimensions['C'].width = 10
-    ws.column_dimensions['D'].width = 16
+    # Column widths
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 38
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 18
 
     row = 1
 
     # Title
     if title_val:
         c = ws.cell(row=row, column=1, value=title_val)
-        c.font = Font(bold=True, size=13)
-        ws.row_dimensions[row].height = 22
+        c.font = _SUMM_FONT_TTL
+        ws.row_dimensions[row].height = 24
         row += 1
 
     # Pay date
     if pay_date_val:
-        lbl = ws.cell(row=row, column=1, value="Pay Date:")
-        lbl.font = Font(bold=True, size=10)
-        c = ws.cell(row=row, column=2, value=pay_date_val)
-        from datetime import datetime as _dt
-        if isinstance(pay_date_val, _dt):
-            c.number_format = "mm/dd/yyyy"
+        ws.cell(row=row, column=1, value="Pay Date:").font = _SUMM_FONT_BOLD
+        pd = ws.cell(row=row, column=2, value=pay_date_val)
+        pd.font = _SUMM_FONT
+        if isinstance(pay_date_val, datetime):
+            pd.number_format = "mm/dd/yyyy"
         row += 1
 
     row += 1  # blank separator
 
     # Header row
     hdr_row = row
-    thin = Side(style='thin')
-    bottom_border = Border(bottom=thin)
+    bottom_border = Border(bottom=THIN_SIDE)
     for col, label, align in [
-        (1, "Distrib Code", "left"),
-        (2, "Distributor",  "left"),
-        (3, "# Lines",      "center"),
-        (4, "Total Comm $", "right"),
+        (1, "Distrib Code",    "left"),
+        (2, "Distributor",     "left"),
+        (3, "# of Surgeries",  "center"),
+        (4, "Total Comm $",    "right"),
     ]:
         c = ws.cell(row=hdr_row, column=col, value=label)
-        c.font      = Font(bold=True, size=10)
+        c.font      = _SUMM_FONT_HDR
         c.border    = bottom_border
         c.alignment = Alignment(horizontal=align)
     row += 1
@@ -705,46 +661,59 @@ def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
     # Data rows
     grand_n   = 0
     grand_tot = 0.0
-    for dist_code, dist_name, n_rows, total_comm in group_summaries:
-        ws.cell(row=row, column=1, value=dist_code).alignment = Alignment(horizontal="left")
-        ws.cell(row=row, column=2, value=dist_name).alignment = Alignment(horizontal="left")
-        c_n = ws.cell(row=row, column=3, value=n_rows)
-        c_n.alignment = Alignment(horizontal="center")
-        c_t = ws.cell(row=row, column=4, value=total_comm)
-        c_t.number_format = "#,##0.00"
-        c_t.alignment = Alignment(horizontal="right")
-        grand_n   += n_rows
+    for dist_code, dist_name, n_surg, total_comm in group_summaries:
+        ws.cell(row=row, column=1, value=dist_code).font = _SUMM_FONT
+        ws.cell(row=row, column=1).alignment = Alignment(horizontal="left")
+
+        ws.cell(row=row, column=2, value=dist_name).font = _SUMM_FONT
+        ws.cell(row=row, column=2).alignment = Alignment(horizontal="left")
+
+        cn = ws.cell(row=row, column=3, value=n_surg)
+        cn.font = _SUMM_FONT
+        cn.alignment = Alignment(horizontal="center")
+
+        ct = ws.cell(row=row, column=4, value=total_comm)
+        ct.font = _SUMM_FONT
+        ct.number_format = "#,##0.00"
+        ct.alignment = Alignment(horizontal="right")
+
+        grand_n   += n_surg
         grand_tot += total_comm
         row += 1
 
-    row += 1  # blank before grand total
-
-    top_border = Border(top=thin)
+    # Grand total row
+    row += 1
+    top_border = Border(top=THIN_SIDE)
     for col in range(1, 5):
         ws.cell(row=row, column=col).border = top_border
 
-    lbl_c = ws.cell(row=row, column=2, value="Grand Total")
-    lbl_c.font = Font(bold=True, size=10)
+    ws.cell(row=row, column=2, value="Grand Total").font = _SUMM_FONT_BOLD
 
-    c_gn = ws.cell(row=row, column=3, value=grand_n)
-    c_gn.font      = Font(bold=True, size=10)
-    c_gn.alignment = Alignment(horizontal="center")
+    gn = ws.cell(row=row, column=3, value=grand_n)
+    gn.font      = _SUMM_FONT_BOLD
+    gn.alignment = Alignment(horizontal="center")
 
-    c_gt = ws.cell(row=row, column=4, value=grand_tot)
-    c_gt.font         = Font(bold=True, size=10)
-    c_gt.number_format = "#,##0.00"
-    c_gt.alignment    = Alignment(horizontal="right")
+    gt = ws.cell(row=row, column=4, value=grand_tot)
+    gt.font          = _SUMM_FONT_BOLD
+    gt.number_format = "#,##0.00"
+    gt.alignment     = Alignment(horizontal="right")
+
+    # Page setup — portrait, fit to one page wide
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.fitToWidth  = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
 
     return ws
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — DISTRIBUTOR TABS (all managers combined, one tab per Distrib Code)
+# STEP 2 CLI — DISTRIBUTOR TABS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def process_distributor_tabs(input_path):
     """
-    Generate one distributor tab per unique Distrib Code (across all managers).
+    CLI entry point: generate distributor tabs + Summary for one input file.
     Returns the output xlsx path.
     """
     wb_src = load_workbook(input_path)
@@ -752,27 +721,18 @@ def process_distributor_tabs(input_path):
     src_sheet = get_sheet_ci(wb_src, "masterlog")
     if src_sheet is None:
         sys.exit("Error: No 'masterlog' sheet found.")
+
     header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
-        sys.exit("Error: Could not find header row in Summary sheet.")
+        sys.exit("Error: Could not find header row in masterlog.")
 
     hosp_idx = label_map.get("hospital")
     dist_idx = label_map.get("distrib code", label_map.get("distributor"))
+    comm_idx = label_map.get("comm $")
     po_idx   = label_map.get("po")
 
     title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
-
-    all_rows  = list(src_sheet.iter_rows())
-    data_rows = []
-    for row in all_rows[header_row_num:]:          # header_row_num is 1-based, so index = header_row_num (skips header)
-        cells    = list(row)
-        hosp_val = cells[hosp_idx].value if hosp_idx < len(cells) else None
-        if not hosp_val or not str(hosp_val).strip():
-            continue
-        if po_idx is not None and is_legacy_subtotal(cells, po_idx):
-            continue
-        data_rows.append(cells)
-
+    data_rows = collect_data_rows(src_sheet, header_row_num, hosp_idx, po_idx)
     surgeon_lookup = build_surgeon_lookup(wb_src)
 
     out_wb = load_workbook(input_path)
@@ -783,37 +743,38 @@ def process_distributor_tabs(input_path):
         title_val, pay_date_val, surgeon_lookup,
     )
 
-    input_dir = os.path.dirname(os.path.abspath(input_path))
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    out_path  = os.path.join(input_dir, f"{base_name}_distributor_tabs.xlsx")
+    # Build group summaries and create Summary tab
+    group_summaries = _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup)
+    create_summary_tab(out_wb, group_summaries, title_val, pay_date_val)
+
+    out_path = os.path.join(
+        os.path.dirname(os.path.abspath(input_path)),
+        os.path.splitext(os.path.basename(input_path))[0] + "_distributor_tabs.xlsx",
+    )
     out_wb.save(out_path)
+    _cleanup_tmp_images(out_wb)
 
-    for tmp_path in getattr(out_wb, "_tmp_image_files", []):
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-    pdf_path   = convert_to_pdf(out_path)
-    pdf_status = ", PDF saved" if pdf_path else ", PDF: failed"
-    print(f"Saved {os.path.basename(out_path)} — {num_tabs} distributor tabs{pdf_status}")
+    pdf = convert_to_pdf(out_path)
+    print(f"Saved {os.path.basename(out_path)} — {num_tabs} tabs"
+          f"{', PDF saved' if pdf else ', PDF failed'}")
     return out_path
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN
+# STEP 1 CLI — MANAGER SPLIT
 # ══════════════════════════════════════════════════════════════════════════════
 
 def process(input_path):
+    """CLI entry point: split masterlog by manager into per-manager workbooks."""
     wb_src = load_workbook(input_path)
 
     src_sheet = get_sheet_ci(wb_src, "masterlog")
     if src_sheet is None:
         sys.exit("Error: No 'masterlog' sheet found in the workbook.")
 
-    header_row_num, label_map    = find_summary_header(src_sheet)
+    header_row_num, label_map = find_summary_header(src_sheet)
     if header_row_num is None:
-        sys.exit("Error: Could not find header row in masterlog sheet "
+        sys.exit("Error: Could not find header row in masterlog "
                  "(need Manager, Hospital, Comm $, and Distributor/Distrib Code).")
 
     mgr_idx  = label_map.get("manager")
@@ -823,85 +784,97 @@ def process(input_path):
     po_idx   = label_map.get("po")
 
     if any(x is None for x in [mgr_idx, hosp_idx, dist_idx, comm_idx]):
-        sys.exit("Error: Missing required columns in Summary header.")
+        sys.exit("Error: Missing required columns in masterlog header.")
 
     title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
+    data_rows  = collect_data_rows(src_sheet, header_row_num, hosp_idx, po_idx)
+    col_widths = {col: dim.width for col, dim in src_sheet.column_dimensions.items()}
 
-    # Collect data rows
-    all_rows  = list(src_sheet.iter_rows())
-    header_0  = header_row_num - 1
-    data_rows = []
-    for row in all_rows[header_0 + 1:]:
-        cells    = list(row)
-        hosp_val = cells[hosp_idx].value if hosp_idx < len(cells) else None
-        if not hosp_val or not str(hosp_val).strip():
-            continue
-        if po_idx is not None and is_legacy_subtotal(cells, po_idx):
-            continue
-        data_rows.append(cells)
-
-    # Detect managers (order of first appearance)
+    # Detect managers in order of first appearance
     managers, seen = [], set()
     for cells in data_rows:
         mgr = cells[mgr_idx].value if mgr_idx < len(cells) else None
         if mgr and str(mgr).strip() and str(mgr).strip() not in seen:
             seen.add(str(mgr).strip())
             managers.append(str(mgr).strip())
-
     if not managers:
         sys.exit("Error: No manager values found in data rows.")
 
     surgeon_lookup = build_surgeon_lookup(wb_src)
-    col_widths     = {col: dim.width for col, dim in src_sheet.column_dimensions.items()}
-    input_dir      = os.path.dirname(os.path.abspath(input_path))
-    base_name      = os.path.splitext(os.path.basename(input_path))[0]
+    input_dir = os.path.dirname(os.path.abspath(input_path))
+    base_name = os.path.splitext(os.path.basename(input_path))[0]
 
     for manager in managers:
         out_wb = load_workbook(input_path)
-
-        # Remove sheets not needed in the output
         keep_sheets_ci(out_wb, KEEP_SHEETS)
-
         out_ws = get_sheet_ci(out_wb, "masterlog")
-        max_row = out_ws.max_row
 
-        # Clear existing data rows
-        for r in range(header_row_num + 1, max_row + 1):
+        # Clear data area
+        for r in range(header_row_num + 1, out_ws.max_row + 1):
             for c in range(1, out_ws.max_column + 1):
                 out_ws.cell(row=r, column=c).value = None
 
         # Write this manager's rows
-        manager_rows = [c for c in data_rows
-                        if str(c[mgr_idx].value).strip() == manager]
+        mgr_rows = [c for c in data_rows if str(c[mgr_idx].value).strip() == manager]
+        wr = header_row_num + 1
+        for cells in mgr_rows:
+            for ci, src in enumerate(cells):
+                copy_cell(src, out_ws.cell(row=wr, column=ci + 1))
+            wr += 1
 
-        write_row = header_row_num + 1
-        for cells in manager_rows:
-            for col_0, src_cell in enumerate(cells):
-                copy_cell(src_cell, out_ws.cell(row=write_row, column=col_0 + 1))
-            write_row += 1
-
-        # Restore column widths
-        for col_letter, width in col_widths.items():
-            out_ws.column_dimensions[col_letter].width = width
-
-        # Insert distributor subtotals in Summary
-        num_dists = insert_distributor_subtotals(
-            out_ws, header_row_num, header_row_num + 1, dist_idx, comm_idx)
-
-        # Apply column alignment
+        # Restore column widths, insert subtotals, apply alignment
+        for letter, w in col_widths.items():
+            out_ws.column_dimensions[letter].width = w
+        insert_distributor_subtotals(out_ws, header_row_num, header_row_num + 1, dist_idx, comm_idx)
         apply_summary_alignment(out_ws, label_map, header_row_num)
 
-        # Save xlsx
-        safe_mgr  = manager.replace("/", "_").replace("\\", "_")
-        out_name  = f"{safe_mgr}-{base_name}.xlsx"
-        out_path  = os.path.join(input_dir, out_name)
+        safe   = manager.replace("/", "_").replace("\\", "_")
+        out_path = os.path.join(input_dir, f"{safe}-{base_name}.xlsx")
         out_wb.save(out_path)
 
-        # Convert to PDF
-        pdf_path   = convert_to_pdf(out_path)
-        pdf_status = ", PDF saved" if pdf_path else ", PDF: failed (LibreOffice not found?)"
-        print(f"Saved {out_name} — {len(manager_rows)} data rows, "
-              f"{num_dists} distributor groups{pdf_status}")
+        pdf = convert_to_pdf(out_path)
+        print(f"Saved {os.path.basename(out_path)} — {len(mgr_rows)} rows"
+              f"{', PDF saved' if pdf else ', PDF failed'}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INTERNAL HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup):
+    """
+    Aggregate data rows into per-distributor summaries.
+    Returns [(dist_code, dist_name, n_surgeries, total_comm), …]
+    in order of first appearance.
+    """
+    groups = []
+    seen   = {}
+    for cells in data_rows:
+        val  = cells[dist_idx].value if dist_idx < len(cells) else None
+        code = str(val).strip() if val else ""
+        if not code:
+            continue
+        cval = cells[comm_idx].value if comm_idx is not None and comm_idx < len(cells) else None
+        comm = float(cval) if isinstance(cval, (int, float)) else 0.0
+
+        if code in seen:
+            i = seen[code]
+            c, n, nr, tc = groups[i]
+            groups[i] = (c, n, nr + 1, tc + comm)
+        else:
+            seen[code] = len(groups)
+            info = surgeon_lookup.get(code, {})
+            groups.append((code, info.get("name", code), 1, comm))
+    return groups
+
+
+def _cleanup_tmp_images(wb):
+    """Remove temp image files stored on the workbook during tab generation."""
+    for path in getattr(wb, "_tmp_image_files", []):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
