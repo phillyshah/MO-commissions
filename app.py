@@ -731,9 +731,11 @@ def download_dist_tabs(job_id, filetype):
     job_dir = os.path.join(app.config["OUTPUT_FOLDER"], job_id)
     if not os.path.exists(job_dir):
         return "Job not found", 404
-    ext = ".xlsx" if filetype == "xlsx" else ".zip"
     for f in os.listdir(job_dir):
-        if f.endswith(ext):
+        # xlsx: return only the processed output, never the uploaded input
+        if filetype == "xlsx" and f.endswith("_distributor_tabs.xlsx"):
+            return send_file(os.path.join(job_dir, f), as_attachment=True, download_name=f)
+        if filetype == "zip" and f.endswith(".zip"):
             return send_file(os.path.join(job_dir, f), as_attachment=True, download_name=f)
     return "File not found", 404
 
