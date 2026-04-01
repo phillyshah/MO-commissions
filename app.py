@@ -613,7 +613,8 @@ def process_distributor_tabs(input_path, job_dir):
     Generate one tab per Distrib Code + a Summary sheet with totals.
     Returns dict with xlsx_name, num_tabs, tab_names.
     """
-    wb_src = openpyxl.load_workbook(input_path)
+    # data_only=True so formula cells (e.g. Pay Date) return their cached values
+    wb_src = openpyxl.load_workbook(input_path, data_only=True)
 
     src_sheet = get_sheet_ci(wb_src, "masterlog")
     if src_sheet is None:
