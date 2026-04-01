@@ -123,6 +123,7 @@ def find_summary_header(sheet):
 def scan_summary_meta(sheet, header_row_num):
     """
     Scan rows above the header for 'Title:' and 'Pay Date:' label/value pairs.
+    Accepts labels with or without trailing colon (e.g. 'Pay Date' or 'Pay Date:').
     Exits early once both values are found.
     Returns (title_str | None, pay_date_value | None).
     """
@@ -132,12 +133,12 @@ def scan_summary_meta(sheet, header_row_num):
         for i, cell in enumerate(cells):
             if cell.value is None:
                 continue
-            label = str(cell.value).strip().lower()
-            if label in ("title:", "pay date:"):
+            label = str(cell.value).strip().lower().rstrip(":")
+            if label in ("title", "pay date"):
                 # The value sits in the next non-empty cell to the right
                 for j in range(i + 1, len(cells)):
                     if cells[j].value is not None:
-                        if label == "title:":
+                        if label == "title":
                             title = str(cells[j].value).strip()
                         else:
                             pay_date = cells[j].value
@@ -791,7 +792,8 @@ def _cleanup_tmp_images(wb):
 
 def process_distributor_tabs(input_path):
     """Step 2 CLI: generate distributor tabs + Summary. Returns output xlsx path."""
-    wb_src = load_workbook(input_path)
+    # data_only=True so formula cells (e.g. Pay Date) return their cached values
+    wb_src = load_workbook(input_path, data_only=True)
 
     src_sheet = get_sheet_ci(wb_src, "masterlog")
     if src_sheet is None:
