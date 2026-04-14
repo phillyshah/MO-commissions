@@ -288,6 +288,11 @@ def build_surgeon_lookup(wb):
         return {}
 
     ci, ni, coi = lmap["distrib code"], lmap["distributor"], lmap["contact"]
+    # Vendor code lives in the last column of the Surgeon lookup sheet
+    last_col_idx = max(lmap.values()) if lmap else None
+    # Only treat last column as vendor code if it's beyond the known columns
+    vi = last_col_idx if last_col_idx not in (ci, ni, coi) else None
+
     lookup = {}
     for row in ws.iter_rows(min_row=hdr_row + 1, max_row=ws.max_row):
         cells = list(row)
@@ -300,6 +305,7 @@ def build_surgeon_lookup(wb):
         lookup[code] = {
             "name":    str(cells[ni].value).strip()  if ni  < len(cells) and cells[ni].value  else "",
             "contact": str(cells[coi].value).strip() if coi < len(cells) and cells[coi].value else "",
+            "vendor_code": str(cells[vi].value).strip() if vi is not None and vi < len(cells) and cells[vi].value else "",
         }
     return lookup
 
@@ -326,7 +332,7 @@ def scan_template_placeholders(ws, header_row_num):
     Scan rows above the header for known placeholder cell values.
     Returns {lower_key: (row, 1-based col)}.
     """
-    KEYS = {"distributor", "distrib code", "contact", "title", "=summary!b2"}
+    KEYS = {"distributor", "distrib code", "contact", "title", "=summary!b2", "vendor code"}
     result = {}
     for row in ws.iter_rows(min_row=1, max_row=header_row_num - 1):
         for cell in row:
@@ -415,6 +421,7 @@ def make_tab_name(code, dist_name, existing_names):
 def populate_distributor_tab(ws, tmpl_header_row, placeholders,
                               preformatted_rows, first_row_borders,
                               dist_code, dist_name, contact, title, pay_date,
+                              vendor_code,
                               row_cells_list,
                               col_map, comm_0idx, hosp_0idx, src_comm_0idx,
                               center_tmpl_cols):
@@ -450,7 +457,8 @@ def populate_distributor_tab(ws, tmpl_header_row, placeholders,
     for key, value in [("distributor",  dist_name),
                        ("distrib code", dist_code),
                        ("contact",      contact),
-                       ("title",        title)]:
+                       ("title",        title),
+                       ("vendor code",  vendor_code)]:
         if key in placeholders:
             r, col = placeholders[key]
             cell = ws.cell(row=r, column=col)
@@ -593,9 +601,10 @@ def generate_distributor_tabs(out_wb, data_rows, dist_col_0idx,
     count = 0
 
     for dist_code, rows in sorted_groups:
-        info      = surgeon_lookup.get(dist_code, {})
-        dist_name = info.get("name", dist_code)
-        contact   = info.get("contact", "")
+        info        = surgeon_lookup.get(dist_code, {})
+        dist_name   = info.get("name", dist_code)
+        contact     = info.get("contact", "")
+        vendor_code = info.get("vendor_code", "")
         if not info:
             print(f"  Warning: no lookup entry for '{dist_code}'")
 
@@ -617,6 +626,7 @@ def generate_distributor_tabs(out_wb, data_rows, dist_col_0idx,
             new_ws, tmpl_header_row, placeholders,
             preformatted_rows, first_row_borders,
             dist_code, dist_name, contact, title, pay_date,
+            vendor_code,
             rows,
             col_map, comm_0idx, hosp_0idx, src_comm_0idx, center_tmpl_cols,
         )
@@ -662,15 +672,17 @@ def convert_to_pdf(xlsx_path):
 def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
     """
     Insert a 'Summary' sheet at position 0 showing per-distributor totals.
-    group_summaries: [(dist_code, dist_name, n_surgeries, total_comm), …]
+    group_summaries: [(dist_code, dist_name, manager, n_surgeries, total_comm), …]
+    Sorted by distributor name for readability.
     Returns the new worksheet.
     """
     ws = out_wb.create_sheet("Summary", 0)
 
     ws.column_dimensions["A"].width = 16
-    ws.column_dimensions["B"].width = 38
-    ws.column_dimensions["C"].width = 14
-    ws.column_dimensions["D"].width = 18
+    ws.column_dimensions["B"].width = 34
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["E"].width = 18
 
     row = 1
 
@@ -696,8 +708,9 @@ def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
     for col, label, align in [
         (1, "Distrib Code",   "left"),
         (2, "Distributor",    "left"),
-        (3, "# of Surgeries", "center"),
-        (4, "Total Comm $",   "right"),
+        (3, "Manager",        "left"),
+        (4, "# of Surgeries", "center"),
+        (5, "Total Comm $",   "right"),
     ]:
         c = ws.cell(row=hdr_row, column=col, value=label)
         c.font      = _SUMM_FONT_HDR
@@ -705,18 +718,20 @@ def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
         c.alignment = Alignment(horizontal=align)
     row += 1
 
-    # Data rows
+    # Data rows (sorted by distributor name)
     grand_n = grand_tot = 0
-    for dist_code, dist_name, n_surg, total_comm in group_summaries:
+    for dist_code, dist_name, manager, n_surg, total_comm in group_summaries:
         ws.cell(row=row, column=1, value=dist_code).font      = _SUMM_FONT
         ws.cell(row=row, column=1).alignment                  = _ALIGN_LEFT
         ws.cell(row=row, column=2, value=dist_name).font      = _SUMM_FONT
         ws.cell(row=row, column=2).alignment                  = _ALIGN_LEFT
+        ws.cell(row=row, column=3, value=manager).font        = _SUMM_FONT
+        ws.cell(row=row, column=3).alignment                  = _ALIGN_LEFT
 
-        cn = ws.cell(row=row, column=3, value=n_surg)
+        cn = ws.cell(row=row, column=4, value=n_surg)
         cn.font = _SUMM_FONT; cn.alignment = _ALIGN_CENTER
 
-        ct = ws.cell(row=row, column=4, value=total_comm)
+        ct = ws.cell(row=row, column=5, value=total_comm)
         ct.font = _SUMM_FONT; ct.number_format = "#,##0.00"; ct.alignment = _ALIGN_RIGHT
 
         grand_n   += n_surg
@@ -726,15 +741,15 @@ def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
     # Grand total row
     row += 1
     top_border = Border(top=THIN_SIDE)
-    for col in range(1, 5):
+    for col in range(1, 6):
         ws.cell(row=row, column=col).border = top_border
 
     ws.cell(row=row, column=2, value="Grand Total").font = _SUMM_FONT_BOLD
 
-    gn = ws.cell(row=row, column=3, value=grand_n)
+    gn = ws.cell(row=row, column=4, value=grand_n)
     gn.font = _SUMM_FONT_BOLD; gn.alignment = _ALIGN_CENTER
 
-    gt = ws.cell(row=row, column=4, value=grand_tot)
+    gt = ws.cell(row=row, column=5, value=grand_tot)
     gt.font = _SUMM_FONT_BOLD; gt.number_format = "#,##0.00"; gt.alignment = _ALIGN_RIGHT
 
     # Portrait, fit to one page wide — easy to print
@@ -750,12 +765,12 @@ def create_summary_tab(out_wb, group_summaries, title_val, pay_date_val):
 # INTERNAL HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup):
+def _build_group_summaries(data_rows, dist_idx, comm_idx, mgr_idx, surgeon_lookup):
     """
-    Aggregate data rows into per-distributor totals, sorted by Distrib Code.
-    Returns [(dist_code, dist_name, n_surgeries, total_comm), …].
+    Aggregate data rows into per-distributor totals, sorted by Distributor name.
+    Returns [(dist_code, dist_name, manager, n_surgeries, total_comm), …].
     """
-    groups: dict[str, list] = {}  # code → [dist_name, n_rows, total_comm]
+    groups: dict[str, list] = {}  # code → [dist_name, manager, n_rows, total_comm]
     for cells in data_rows:
         val  = cells[dist_idx].value if dist_idx < len(cells) else None
         code = str(val).strip() if val else ""
@@ -763,17 +778,20 @@ def _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup):
             continue
         cval = cells[comm_idx].value if comm_idx is not None and comm_idx < len(cells) else None
         comm = float(cval) if isinstance(cval, (int, float)) else 0.0
+        mgr_val = cells[mgr_idx].value if mgr_idx is not None and mgr_idx < len(cells) else None
+        mgr = str(mgr_val).strip() if mgr_val else ""
 
         if code in groups:
-            groups[code][1] += 1
-            groups[code][2] += comm
+            groups[code][2] += 1
+            groups[code][3] += comm
         else:
             name = surgeon_lookup.get(code, {}).get("name", code)
-            groups[code] = [name, 1, comm]
+            groups[code] = [name, mgr, 1, comm]
 
+    # Sort by distributor name (not code) for easier reading
     return sorted(
-        [(code, g[0], g[1], g[2]) for code, g in groups.items()],
-        key=lambda t: t[0].lower(),
+        [(code, g[0], g[1], g[2], g[3]) for code, g in groups.items()],
+        key=lambda t: t[1].lower(),
     )
 
 
@@ -807,6 +825,7 @@ def process_distributor_tabs(input_path):
     dist_idx = label_map.get("distrib code", label_map.get("distributor"))
     comm_idx = label_map.get("comm $")
     po_idx   = label_map.get("po")
+    mgr_idx  = label_map.get("manager")
 
     title_val, pay_date_val = scan_summary_meta(src_sheet, header_row_num)
     data_rows      = collect_data_rows(src_sheet, header_row_num, hosp_idx, po_idx)
@@ -819,7 +838,7 @@ def process_distributor_tabs(input_path):
         out_wb, data_rows, dist_idx, label_map,
         title_val, pay_date_val, surgeon_lookup,
     )
-    group_summaries = _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup)
+    group_summaries = _build_group_summaries(data_rows, dist_idx, comm_idx, mgr_idx, surgeon_lookup)
     create_summary_tab(out_wb, group_summaries, title_val, pay_date_val)
 
     out_path = os.path.join(
