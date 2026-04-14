@@ -628,6 +628,7 @@ def process_distributor_tabs(input_path, job_dir):
     dist_idx = label_map.get("distrib code", label_map.get("distributor"))
     comm_idx = label_map.get("comm $")
     po_idx   = label_map.get("po")
+    mgr_idx  = label_map.get("manager")
 
     if hosp_idx is None or dist_idx is None:
         raise ValueError("Missing required columns (Hospital, Distrib Code) in masterlog.")
@@ -645,7 +646,7 @@ def process_distributor_tabs(input_path, job_dir):
     )
 
     # Build and insert Summary tab at position 0
-    group_summaries = _build_group_summaries(data_rows, dist_idx, comm_idx, surgeon_lookup)
+    group_summaries = _build_group_summaries(data_rows, dist_idx, comm_idx, mgr_idx, surgeon_lookup)
     create_summary_tab(out_wb, group_summaries, title_val, pay_date_val)
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
@@ -765,6 +766,9 @@ def generate_distributor_tab_pdfs(job_dir):
     os.makedirs(pdf_dir,  exist_ok=True)
     os.makedirs(lo_home,  exist_ok=True)
 
+    # MMYY suffix for PDF filenames (month/year the file was created)
+    mmyy = datetime.now().strftime("%m%y")
+
     # Load without data_only so images are accessible
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     wb_imgs = openpyxl.load_workbook(xlsx_path)  # second load to access embedded images
@@ -801,8 +805,9 @@ def generate_distributor_tab_pdfs(job_dir):
         new_ws.page_setup.fitToHeight = 0
         new_ws.sheet_properties.pageSetUpPr.fitToPage = True
 
+        # Filename includes MMYY suffix (e.g. "JS001 (Jones)_0426.xlsx")
         safe = re.sub(r'[<>:"/\\|?*]', "_", name).strip()
-        new_wb.save(os.path.join(temp_dir, f"{safe}.xlsx"))
+        new_wb.save(os.path.join(temp_dir, f"{safe}_{mmyy}.xlsx"))
         new_wb.close()
 
     wb.close()
