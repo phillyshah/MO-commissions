@@ -24,6 +24,8 @@ from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XlImage
 from openpyxl.cell.cell import MergedCell
 
+from version import VERSION
+
 from process_commissions import (
     find_summary_header, scan_summary_meta, is_legacy_subtotal,
     build_surgeon_lookup, generate_distributor_tabs, create_summary_tab,
@@ -667,7 +669,7 @@ def process_distributor_tabs(input_path, job_dir):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=VERSION)
 
 
 # ── Step 1 routes ─────────────────────────────────────────────────────────────
