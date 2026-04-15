@@ -8,17 +8,17 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #0c0f14;
-            --surface: #161a22;
-            --surface-hover: #1c2130;
-            --border: #2a2f3d;
-            --text: #e8eaf0;
-            --text-muted: #7b829a;
-            --accent: #4f8ff7;
-            --accent-glow: rgba(79, 143, 247, 0.15);
-            --success: #34d399;
-            --success-glow: rgba(52, 211, 153, 0.15);
-            --error: #f87171;
+            --bg: #f5f6f8;
+            --surface: #ffffff;
+            --surface-hover: #f0f2f5;
+            --border: #d1d5db;
+            --text: #1a1a2e;
+            --text-muted: #6b7280;
+            --accent: #2563eb;
+            --accent-glow: rgba(37, 99, 235, 0.08);
+            --success: #16a34a;
+            --success-glow: rgba(22, 163, 74, 0.08);
+            --error: #dc2626;
             --radius: 12px;
         }
 
@@ -49,7 +49,6 @@
         .logo-area img {
             height: 64px;
             margin-bottom: 1rem;
-            background: #fff;
             padding: 10px 20px;
             border-radius: 10px;
         }
@@ -87,6 +86,7 @@
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
 
         /* Dropzone */
@@ -181,9 +181,9 @@
         }
 
         .btn-primary:hover:not(:disabled) {
-            background: #3d7de0;
+            background: #1d4ed8;
             transform: translateY(-1px);
-            box-shadow: 0 4px 20px var(--accent-glow);
+            box-shadow: 0 4px 16px rgba(37, 99, 235, 0.25);
         }
 
         .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
@@ -279,7 +279,7 @@
             transition: all 0.15s;
         }
 
-        .download-row a:hover { background: #3d7de0; }
+        .download-row a:hover { background: #1d4ed8; }
 
         /* Manager rows (card 2) */
         .manager-row {
@@ -320,7 +320,7 @@
         }
 
         .mgr-dl-xlsx { background: var(--accent); color: #fff; }
-        .mgr-dl-xlsx:hover { background: #3d7de0; }
+        .mgr-dl-xlsx:hover { background: #1d4ed8; }
 
         .mgr-dl-pdf {
             background: transparent;
@@ -334,8 +334,8 @@
         /* Error */
         .error-msg {
             display: none;
-            background: rgba(248, 113, 113, 0.08);
-            border: 1px solid rgba(248, 113, 113, 0.2);
+            background: #fef2f2;
+            border: 1px solid #fecaca;
             border-radius: 8px;
             padding: 0.85rem 1rem;
             margin-top: 1rem;
