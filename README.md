@@ -1,22 +1,23 @@
-# Maxx Health — Commission Statement Generator
+# Maxx Orthopedics — MO Commission Tools
 
-Internal tool for generating distributor commission statements from invoice worksheets.
+Internal tool for generating distributor commission statements and manager reports.
+
+**Live at:** https://mo-commissions.90ten.life
 
 ## What It Does
 
-1. Upload a Commission Worksheet (`.xlsx`) containing:
-   - **Invoice List** sheet — all invoices grouped by distributor code
-   - **Dist Lookup** sheet — distributor code → name → contact mapping
-   - **Trauma** sheet (optional) — trauma-specific invoices
+Three-step workflow:
 
-2. The app automatically:
-   - Detects the sales month/year from the Invoice List
-   - Creates a **Summary** sheet with all distributors and totals
-   - Creates **individual distributor tabs** with Maxx branding, logo, formatted headers, footer
-   - Generates **individual PDFs** for each distributor (landscape, print-ready)
-   - Packages all PDFs into a downloadable **zip file**
+1. **Manager Split** — Upload the Summary .xlsx → one workbook + PDF per manager
+2. **Distributor Tab Generator** — Upload the Summary .xlsx → one tab per distributor + Summary sheet
+3. **PDF Generator** — Upload the Step 2 workbook → one PDF per distributor, bundled as ZIP
 
-3. Download the completed workbook and/or the PDF bundle.
+## Input File Requirements
+
+The Summary .xlsx must contain:
+- **MasterLog** sheet — header row with Manager, Hospital, Distrib Code, Comm $, PO. Pay Date and Title above header.
+- **Surgeon Lookup** sheet — Distrib Code, Distributor, Contact, Vendor Code (last column)
+- **Template** sheet — branded commission statement with placeholders
 
 ## Tech Stack
 
@@ -24,22 +25,14 @@ Internal tool for generating distributor commission statements from invoice work
 - **openpyxl** — Excel file generation
 - **LibreOffice Calc** (headless) — PDF conversion
 - **Gunicorn** — production WSGI server
-- **Nginx** — reverse proxy + SSL termination
+- **Nginx** — reverse proxy + SSL termination (Let's Encrypt)
 
-## Deployment (Hostinger Ubuntu VPS)
+## Deployment (Hostinger VPS)
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/YOUR_USER/commission-app.git /opt/commission-app
-
-# 2. Run the deploy script
-cd /opt/commission-app
-sudo bash deploy.sh
-
-# 3. Point DNS: commissions.phillyshah.com → your VPS IP
-
-# 4. Enable SSL
-sudo certbot --nginx -d commissions.phillyshah.com
+cd /opt/mo-commission-app
+git pull origin main
+sudo systemctl restart mo-commission-app
 ```
 
 ## Local Development
@@ -49,42 +42,30 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 python app.py
-# Open http://localhost:5000
+# Open http://localhost:5001
 ```
 
-## Commission Processor (process_commissions.py)
+## Versioning
 
-Standalone script that takes the completed commission workbook (the `.xlsx` produced by the web app) and splits it into one manager-specific workbook each, with distributor subtotals inserted automatically.
-
-```bash
-python process_commissions.py <input.xlsx>
-```
-
-**What it does:**
-
-- Locates the `Summary` sheet and dynamically finds the header row (no hardcoded positions)
-- Strips legacy subtotal rows from prior runs
-- Produces one output file per manager: `{Manager}-{input_filename}.xlsx`
-- Each output contains only that manager's rows, with a subtotal row (bold, `SUM` formula) inserted after each consecutive distributor group
-- Column widths and all cell styles are preserved
-
-**Output files** are written to the same directory as the input file.
+Version tracked in `version.py`. Displayed in the site footer.
+- Increment by 0.1 for minor changes
+- Increment by 1.0 for major changes
 
 ## File Structure
 
 ```
-commission-app/
+MO-commissions/
 ├── app.py                    # Flask app + all processing logic
+├── process_commissions.py    # Shared helpers (Step 1 & 2 core logic)
+├── version.py                # App version number
 ├── requirements.txt
 ├── gunicorn.conf.py          # Production server config
-├── commission-app.service    # systemd service
+├── mo-commission-app.service # systemd service
 ├── nginx-commissions.conf    # Nginx site config
-├── deploy.sh                 # One-command server setup
-├── cleanup.sh                # Cron job for old file cleanup
 ├── static/
-│   └── maxx_logo.png         # Maxx Health logo
+│   └── maxx_logo.png         # Maxx Orthopedics logo
 ├── templates/
-│   └── index.html            # Web UI
+│   └── index.html            # Web UI (single page, 3 steps)
 ├── uploads/                  # Temporary upload storage
-└── outputs/                  # Generated files (auto-cleaned)
+└── outputs/                  # Generated files (job-based, auto-cleaned)
 ```
