@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Admin — Approval matrix — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Admin</p><h1>Approval matrix</h1><p class="asof">As of {{ as_of | local }}</p></div></div>
+{% include "admin/_nav.html" %}
+{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+<p class="muted">Each version is a list of rules. A rule says: for an invoice between <code>min_cents</code> and <code>max_cents</code> (optionally only for a GL prefix or cost center), these <code>roles</code> must approve, in order when <code>sequential</code> is true. An approved version takes effect the next business day and every approval records which version it was judged under.</p>
+
+<h2>Propose a new version</h2>
+<form method="post" action="/admin/matrix/propose" class="card stack">
+  <label>Rules (JSON) <textarea name="rules" rows="10" required style="font-family:monospace">{{ rows[0].rules_text if rows else '[{"min_cents": 0, "max_cents": null, "roles": ["sponsor"], "sequential": false}]' }}</textarea></label>
+  <button class="btn" type="submit">Propose</button>
+</form>
+
+<h2>Versions</h2>
+{% for r in rows %}
+<div class="card" style="margin-bottom:14px">
+  <div class="topbar"><div><h3 style="margin:0">Version {{ r.id }} {% if r.approved_at %}<span class="chip state-APPROVED">approved</span>{% else %}<span class="chip state-AP_REVIEW">waiting</span>{% endif %}</h3>
+  <p class="muted" style="margin:4px 0 0">Proposed by {{ r.proposer }} on {{ r.proposed_at | local }}{% if r.approved_at %} · approved by {{ r.approver }} on {{ r.approved_at | local }} · effective {{ r.effective_from | local }}{% endif %}</p></div>
+  {% if not r.approved_at %}<form method="post" action="/admin/matrix/{{ r.id }}/approve"><button class="btn approve" type="submit" {{ 'disabled' if r.proposed_by == user.id and not user.is_admin }}>Approve</button></form>{% endif %}</div>
+  <pre style="font-size:14px;white-space:pre-wrap">{{ r.rules_text }}</pre>
+</div>
+{% endfor %}
+{% if not rows %}<p class="empty">No matrix has been proposed yet.</p>{% endif %}
+{% endblock %}

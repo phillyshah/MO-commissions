@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Admin — Users — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Admin</p><h1>Users</h1><p class="asof">As of {{ as_of | local }}</p></div></div>
+{% include "admin/_nav.html" %}
+{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+{% if new_code %}
+<div class="banner warn" role="alert"><strong>Passkey enrollment code for {{ code_for }}: <span style="font-size:28px;letter-spacing:.2em">{{ new_code }}</span></strong><br>
+Give this to them by phone or in person. It is shown once, works for 24 hours, and is not stored anywhere you can look it up again.</div>
+{% endif %}
+
+<p class="muted">People appear here after their first sign-in with a MaxxDash account that has the accounting portal grant. Roles, manager and backup are set here.</p>
+
+{% for u in users %}
+<div class="card" style="margin-bottom:14px">
+  <div class="topbar" style="margin-bottom:8px"><div><h3 style="margin:0">{{ u.display_name }} <span class="chip {{ 'state-APPROVED' if u.status == 'active' else 'state-QUARANTINED' }}">{{ u.status }}</span></h3>
+  <p class="muted" style="margin:4px 0 0">{{ u.email }} · {{ u.passkeys }} passkey{{ '' if u.passkeys == 1 else 's' }} · Manager: {{ u.manager_name or '—' }} · Backup: {{ u.backup_name or '—' }}</p></div>
+  <div class="btn-row">
+    {% if u.status == 'active' %}<form method="post" action="/admin/users/{{ u.id }}/freeze" data-confirm="Freeze {{ u.display_name }}? They are signed out everywhere and can look but not act."><button class="btn secondary" type="submit">Freeze</button></form>{% endif %}
+    {% if u.status == 'frozen' %}<form method="post" action="/admin/users/{{ u.id }}/unfreeze"><button class="btn approve" type="submit">Unfreeze</button></form>{% endif %}
+    {% if u.status != 'disabled' %}<form method="post" action="/admin/users/{{ u.id }}/disable" data-confirm="Disable {{ u.display_name }}? Their open approvals move to their backup. Remove the portal grant in MaxxDash as well."><button class="btn danger" type="submit">Disable</button></form>{% endif %}
+    <form method="post" action="/admin/users/{{ u.id }}/enrollment-code"><button class="btn secondary" type="submit">Issue passkey code</button></form>
+  </div></div>
+  <form method="post" action="/admin/users/{{ u.id }}" class="cards" style="grid-template-columns:2fr 1fr 1fr auto;align-items:end">
+    <label>Roles <select name="roles" multiple size="4" style="min-height:120px">{% for r in roles %}<option value="{{ r }}" {{ 'selected' if r in u.roles }}>{{ r }}</option>{% endfor %}</select></label>
+    <label>Manager <select name="manager_id"><option value="">—</option>{% for m in users if m.id != u.id %}<option value="{{ m.id }}" {{ 'selected' if m.id == u.manager_id }}>{{ m.display_name }}</option>{% endfor %}</select></label>
+    <label>Backup <select name="backup_id"><option value="">—</option>{% for m in users if m.id != u.id %}<option value="{{ m.id }}" {{ 'selected' if m.id == u.backup_id }}>{{ m.display_name }}</option>{% endfor %}</select></label>
+    <button class="btn" type="submit">Save</button>
+  </form>
+</div>
+{% endfor %}
+{% if not users %}<p class="empty">Nobody has signed in yet.</p>{% endif %}
+
+{% if can_break_glass %}
+<h2>Break-glass</h2>
+<div class="card">
+  <p style="margin-top:0">{% if break_glass %}<strong class="banner bad" style="display:inline-block">Break-glass is ON.</strong>{% else %}Break-glass is off.{% endif %}
+  Switching it on relaxes the normal controls for an emergency and puts a red banner on every page until it is switched off. Every action while it is on is recorded.</p>
+  <form method="post" action="/admin/break-glass" class="stack" data-confirm="Change break-glass? This is recorded as a security event.">
+    <input type="hidden" name="on" value="{{ 'false' if break_glass else 'true' }}">
+    <label>Reason <input type="text" name="reason" required></label>
+    <button class="btn {{ 'approve' if break_glass else 'danger' }}" type="submit">{{ 'Switch break-glass off' if break_glass else 'Switch break-glass on' }}</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

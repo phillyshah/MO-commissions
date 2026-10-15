@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Admin — Security events — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Admin</p><h1>Security events</h1><p class="asof">As of {{ as_of | local }} · Latest 200</p></div></div>
+{% include "admin/_nav.html" %}
+{% if rows %}<table><thead><tr><th>When</th><th>Type</th><th>Person</th><th>Source</th><th>Detail</th></tr></thead><tbody>
+{% for s in rows %}<tr><td>{{ s.at | local }}</td><td><span class="chip state-QUARANTINED">{{ s.type.replace('_',' ') }}</span></td><td>{{ s.display_name or '—' }}{% if s.email %}<br><small>{{ s.email }}</small>{% endif %}</td><td>{{ s.source or '—' }}</td><td><small>{{ s.detail | tojson }}</small></td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No security events have been recorded.</p>{% endif %}
+{% endblock %}

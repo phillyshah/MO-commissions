@@ -1,0 +1,51 @@
+# MO Commission Tools (the existing Flask generator, app.py) packaged for Docker so it can move
+# behind Traefik at commissions.accounting.90ten.life. app.py itself is unchanged.
+#
+#   docker build -f Dockerfile.commissions -t commissions-generator .
+#
+# What app.py needs from the box:
+#   - `soffice --headless --calc --convert-to pdf`  (app.py:_convert_to_pdf_libreoffice and
+#     process_commissions.py) -> libreoffice-calc plus fonts, or the PDFs render in fallback glyphs.
+#   - writable ./uploads and ./outputs next to app.py (created at import time; job dirs live there,
+#     and LibreOffice's HOME is set to a per-job directory inside outputs).
+#
+# gunicorn.conf.py binds 127.0.0.1:5001 and logs to /var/log/mo-commission-app — right for the old
+# systemd unit, wrong inside a container. The CMD below passes the equivalent settings on the command
+# line instead (bind all interfaces, 2 workers, 300 s timeout, logs to stdout/stderr) so the conf file
+# and the unit keep working for anyone still running it bare-metal.
+
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# libreoffice-calc pulls in the headless core. --no-install-recommends keeps the GUI and Java out;
+# the fonts are what Excel-authored templates expect (Arial/Calibri substitutes).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libreoffice-calc \
+        fonts-liberation fonts-dejavu-core fonts-crosextra-carlito \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 10002 commissions \
+    && useradd --uid 10002 --gid 10002 --create-home --shell /usr/sbin/nologin commissions
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY --chown=commissions:commissions app.py process_commissions.py version.py gunicorn.conf.py ./
+COPY --chown=commissions:commissions static/ ./static/
+COPY --chown=commissions:commissions templates/ ./templates/
+
+RUN mkdir -p /app/uploads /app/outputs && chown -R commissions:commissions /app/uploads /app/outputs
+
+USER commissions:commissions
+
+EXPOSE 5001
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "2", "--timeout", "300", \
+     "--access-logfile", "-", "--error-logfile", "-", "app:app"]

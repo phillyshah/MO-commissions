@@ -1,5 +1,25 @@
 # Maxx Orthopedics — MO Commission Tools
 
+## This repo now holds two apps
+
+**MO Commission Tools** (`app.py`, `process_commissions.py`) — the Flask statement generator
+described in the rest of this file. It is unchanged. It can still run bare-metal under
+`commission-app.service`, and it can now also run as the `commissions-generator` container in
+`docker-compose.accounting.yml` (built by `Dockerfile.commissions`), where it sits behind Traefik at
+`commissions.accounting.90ten.life` and behind the accounting portal's sign-in.
+
+**Maxx Accounting Portal, Stage 1** (the `accounting/` Python package) — invoice intake from
+`accounts@90ten.life`, screening, vendor matching, approval routing, passkey-signed approvals and an
+approved queue for AP. FastAPI + Jinja, Postgres in the `maxx-accounting` Supabase project, identity
+from the MaxxDash Supabase project, a no-network parser container, and a signing service in an AWS
+account Lenny owns. Runs from `docker-compose.accounting.yml` with `make accounting-deploy`.
+
+- Setting it up and running it: [docs/ACCOUNTING_RUNBOOK.md](docs/ACCOUNTING_RUNBOOK.md)
+- How the modules fit together: [accounting/CONTRACTS.md](accounting/CONTRACTS.md)
+- Environment variables: [.env.accounting.example](.env.accounting.example)
+
+---
+
 Internal tool for generating distributor commission statements and manager reports.
 
 **Live at:** https://mo-commissions.90ten.life

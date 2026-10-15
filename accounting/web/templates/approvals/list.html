@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}My approvals — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div><p class="eyebrow">Approvals</p><h1>Waiting for you</h1>
+    <p class="asof">As of {{ as_of | local }} · oldest first</p></div>
+  <div class="btn-row">
+    {% if signing_session %}
+      <span class="chip state-APPROVED">Signing session open until {{ signing_session.expires_at | local('%I:%M %p') }}</span>
+    {% elif has_passkey %}
+      <button class="btn secondary" type="button" data-webauthn="session" data-next="/approvals">Tap passkey to start a signing session</button>
+    {% else %}
+      <a class="btn secondary" href="/passkeys">Enroll a passkey first</a>
+    {% endif %}
+    <button class="help-button" type="button" data-help="help-passkey" aria-label="Why do I need to tap my passkey?">?</button>
+  </div>
+</div>
+{% if request.query_params.get('done') == 'approved' %}<p class="banner good" role="status">Approved and recorded. Thank you.</p>{% endif %}
+{% if request.query_params.get('done') == 'rejected' %}<p class="banner info" role="status">Rejected and recorded. AP has been told.</p>{% endif %}
+{% if request.query_params.get('done') == 'reassigned' %}<p class="banner info" role="status">Reassigned. The other person has been notified.</p>{% endif %}
+{% if request.query_params.get('done') == 'questioned' %}<p class="banner info" role="status">Your question went to AP. The invoice will come back to you when it is answered.</p>{% endif %}
+<p id="webauthn-status" class="form-error" role="alert" hidden></p>
+
+{% if rows %}
+<table>
+  <thead><tr><th>Invoice</th><th>Vendor</th><th class="num">Amount</th><th>Waiting</th><th>Due</th><th>Flags</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="clickable" data-href="/approvals/{{ r.id }}">
+      <td><a href="/approvals/{{ r.id }}">{{ r.portal }}</a><br><small>{{ r.invoice_number or '' }}</small></td>
+      <td>{{ r.vendor_name or '—' }}</td>
+      <td class="num">{{ r.gross_cents | money(r.currency) }}</td>
+      <td>{{ r.received_at | age }}<br><small>received {{ r.received_at | day }}</small></td>
+      <td>{{ r.due_date | day }}</td>
+      <td>
+        {% if r.vendor_hcp %}<span class="chip tag hcp">HCP</span>{% endif %}
+        {% for s in r.soft_signals %}<span class="chip tag">{{ s | replace('_',' ') }}</span>{% endfor %}
+        {% if 'released_from_quarantine' in r.tags %}<span class="chip tag">released from quarantine</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">Nothing is waiting on you.</p>
+{% endif %}
+
+<p style="margin-top:20px"><a href="/delegations">Away soon? Set up a delegate.</a></p>
+{% include "approvals/_help_passkey.html" %}
+<script src="/static/webauthn.js"></script>
+{% endblock %}

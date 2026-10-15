@@ -5,3 +5,8 @@ uploads/
 outputs/
 *.log
 .env
+
+# Accounting portal
+.env.accounting
+var/
+.pytest_cache/

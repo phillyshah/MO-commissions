@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ portal }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div><p class="eyebrow">Approval · {{ req.role | replace(',', ' and ') }}</p>
+    <h1>{{ portal }} · {{ inv.vendor_legal_name or inv.vendor_name_raw or 'Unknown vendor' }}</h1>
+    <p class="asof">As of {{ as_of | local }} · received {{ inv.received_at | day }} ({{ inv.received_at | age }} ago) · due {{ inv.due_date | day }}</p></div>
+  <div class="btn-row"><a class="btn secondary" href="/approvals">Back to my approvals</a>
+    <button class="help-button" type="button" data-help="help-passkey" aria-label="Why do I need to tap my passkey?">?</button></div>
+</div>
+
+{% if error %}<p class="banner bad" role="alert">{{ error }}</p>{% endif %}
+<p id="webauthn-status" class="form-error" role="alert" hidden></p>
+{% if inv.soft_signals %}
+<p class="banner warn"><strong>Worth a second look.</strong> The screening noticed:
+  <ul>{% for s in inv.soft_signals %}<li>{{ s | replace('_',' ') }}</li>{% endfor %}</ul>
+  These do not block approval; they are here so you look before you sign.</p>
+{% endif %}
+{% if 'released_from_quarantine' in inv.tags %}<p class="banner info">This invoice was held in quarantine and released by the Controller after a callback. It needs the full approval chain.</p>{% endif %}
+{% if inv.state != 'PENDING_APPROVAL' %}<p class="banner info">This invoice is currently <span class="chip state-{{ inv.state }}">{{ inv.state | replace('_',' ') }}</span> and cannot be signed right now.</p>{% endif %}
+
+<div class="detail">
+  <section class="pages" aria-label="Invoice pages">
+    {% for n in pages %}<img src="/invoices/{{ inv.id }}/page/{{ n }}" alt="Invoice {{ portal }}, page {{ n }}" loading="lazy">{% endfor %}
+    {% if not pages %}<p class="empty">No rendered pages yet.</p>{% endif %}
+  </section>
+
+  <section class="fields">
+    <div class="card">
+      <h2 style="margin-top:0">Invoice details
+        {% if inv.vendor_hcp %}<span class="chip tag hcp">HCP · Compliance co-signs</span>{% endif %}</h2>
+      <dl>
+        {% for f in fields %}
+        <dt>{{ f.label }}</dt>
+        <dd class="{{ 'low' if f.low }}">
+          {% if f.label in ('Amount', 'Tax') %}{{ f.value | money(inv.currency) }}
+          {% elif f.label in ('Invoice date', 'Due date') %}{{ f.value | day }}
+          {% else %}{{ f.value if f.value is not none else '—' }}{% endif %}
+          {% if f.confidence is not none %}<span class="conf">{{ (f.confidence * 100) | round | int }}% sure</span>{% endif %}
+        </dd>
+        {% endfor %}
+      </dl>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">This vendor's last invoices</h2>
+      {% if history %}
+      <table><thead><tr><th>Invoice</th><th>Date</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
+        {% for h in history %}<tr><td>{{ h.invoice_number or '—' }}</td><td>{{ h.invoice_date | day }}</td>
+          <td class="num">{{ h.gross_cents | money(h.currency) }}</td><td><span class="chip state-{{ h.state }}">{{ h.state | replace('_',' ') }}</span></td></tr>{% endfor %}
+      </tbody></table>
+      {% else %}<p class="empty">First invoice from this vendor.</p>{% endif %}
+    </div>
+
+    {% if questions %}
+    <div class="card" style="margin-top:16px"><h2 style="margin-top:0">Questions to AP</h2>
+      <ul class="timeline">{% for q in questions %}<li><span>{{ q.asked_at | local }}</span><span><strong>Q:</strong> {{ q.question }}
+        {% if q.answer %}<br><strong>A:</strong> {{ q.answer }}{% else %}<br><em>Waiting for AP.</em>{% endif %}</span></li>{% endfor %}</ul></div>
+    {% endif %}
+
+    {% if can_act and inv.state == 'PENDING_APPROVAL' %}
+    <div class="card" style="margin-top:16px">
+      <p class="attestation">{{ attestation.text }}</p>
+      {% if needs_tap %}
+        <p class="form-note">{% if inv.gross_cents and inv.gross_cents >= step_up_cents %}This invoice is at or above the step-up amount ({{ step_up_cents | money }}), so it needs its own passkey tap.
+          {% elif inv.vendor_hcp %}This invoice is for a health-care professional, so it needs its own passkey tap.
+          {% else %}You have no signing session open, so approving will ask for your passkey.{% endif %}</p>
+        <div class="btn-row">
+          <button class="btn approve" type="button" data-webauthn="sign" data-request="{{ req.id }}" data-decision="approve">Approve with passkey</button>
+          <button class="btn danger" type="button" data-open-dialog="reject-dialog">Reject…</button>
+          <button class="btn secondary" type="button" data-open-dialog="reassign-dialog">Reassign…</button>
+          <button class="btn secondary" type="button" data-open-dialog="question-dialog">Ask AP a question…</button>
+        </div>
+      {% else %}
+        <div class="btn-row">
+          <form method="post" action="/approvals/{{ req.id }}/approve"><button class="btn approve" type="submit">Approve</button></form>
+          <button class="btn danger" type="button" data-open-dialog="reject-dialog">Reject…</button>
+          <button class="btn secondary" type="button" data-open-dialog="reassign-dialog">Reassign…</button>
+          <button class="btn secondary" type="button" data-open-dialog="question-dialog">Ask AP a question…</button>
+        </div>
+        <p class="caption" style="margin-top:10px">You are inside a signing session, so this approval is one click. It is still sealed and recorded against your passkey.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+</div>
+
+<dialog id="reject-dialog" aria-labelledby="reject-title">
+  <h2 id="reject-title" style="margin-top:0">Reject this invoice</h2>
+  <p>AP will see your reason and contact the vendor. Nothing is sent to the vendor automatically.</p>
+  <form method="post" action="/approvals/{{ req.id }}/reject" class="stack" id="reject-form">
+    <label>Reason (required)<textarea name="reason" required minlength="3"></textarea></label>
+    <div class="btn-row">
+      {% if needs_tap %}<button class="btn danger" type="button" data-webauthn="sign" data-request="{{ req.id }}" data-decision="reject" data-reason-from="reject-form">Reject with passkey</button>
+      {% else %}<button class="btn danger" type="submit">Reject</button>{% endif %}
+      <button class="btn secondary" type="button" data-close>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="reassign-dialog" aria-labelledby="reassign-title">
+  <h2 id="reassign-title" style="margin-top:0">Reassign this approval</h2>
+  <p>Choose who should review it instead. You cannot choose yourself, and whoever handled this invoice in AP will be refused.</p>
+  <form method="post" action="/approvals/{{ req.id }}/reassign" class="stack">
+    <label>Send to<select name="to_user" required><option value="">Choose a person…</option>
+      {% for d in delegates %}<option value="{{ d.id }}">{{ d.display_name }}</option>{% endfor %}</select></label>
+    <label>Note (optional)<input type="text" name="reason" maxlength="200"></label>
+    <div class="btn-row"><button class="btn" type="submit">Reassign</button><button class="btn secondary" type="button" data-close>Cancel</button></div>
+  </form>
+</dialog>
+
+<dialog id="question-dialog" aria-labelledby="question-title">
+  <h2 id="question-title" style="margin-top:0">Ask AP a question</h2>
+  <p>The invoice pauses while AP answers and comes back to your list afterwards.</p>
+  <form method="post" action="/approvals/{{ req.id }}/question" class="stack">
+    <label>Your question<textarea name="question" required minlength="3"></textarea></label>
+    <div class="btn-row"><button class="btn" type="submit">Send to AP</button><button class="btn secondary" type="button" data-close>Cancel</button></div>
+  </form>
+</dialog>
+
+{% include "approvals/_help_passkey.html" %}
+<script src="/static/webauthn.js"></script>
+{% endblock %}

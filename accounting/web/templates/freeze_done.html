@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Freeze my access</title>
+<link rel="stylesheet" href="/static/portal.css"></head>
+<body><main class="login-shell"><section class="login-card">
+{% if ok %}<h1>Your access is frozen</h1><p class="login-copy">You are signed out everywhere and your approvals are paused. The Controller has been told and will contact you.</p>
+{% else %}<h1>This link has expired</h1><p class="login-copy">Freeze links work for 14 days and once only. Contact the Controller directly.</p>{% endif %}
+</section></main></body></html>

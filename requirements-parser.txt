@@ -1,0 +1,5 @@
+# The parser container (Dockerfile.parser) — rasterize + text only. No web, no DB, no network.
+# Same pins as requirements-accounting.txt; kept separate so the parser image stays small.
+pypdfium2==5.13.0
+Pillow==12.3.0
+python-dotenv==1.2.3

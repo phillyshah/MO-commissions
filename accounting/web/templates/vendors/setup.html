@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Vendor set-up queue — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow"><a href="/vendors">Vendors</a></p><h1>Invoices waiting for a vendor</h1>
+  <p class="muted">These invoices were read but matched no vendor record. Add the vendor (with a sponsor) or attach an existing one; the invoice then routes as normal. New vendors are never auto-routed.</p></div></div>
+
+{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+
+{% if rows %}
+<table>
+  <thead><tr><th>Portal no.</th><th>Vendor as printed</th><th>Sender</th><th>Invoice</th><th class="num">Total</th><th>Waiting</th><th>Action</th></tr></thead>
+  <tbody>
+  {% for i in rows %}
+  <tr>
+    <td><a href="/invoices/{{ i.id }}">AP-{{ '%06d' % i.portal_number }}</a></td>
+    <td><strong>{{ i.vendor_name_raw or '—' }}</strong>{% if i.remit_to %}<br><small>{{ i.remit_to.line1 or '' }} {{ i.remit_to.city or '' }} {{ i.remit_to.state or '' }} {{ i.remit_to.postal or '' }}</small>{% endif %}</td>
+    <td>{{ i.from_name or '' }}<br><small>{{ i.from_addr or '—' }}</small></td>
+    <td>{{ i.invoice_number or '—' }}<br><small>{{ i.invoice_date | day }}</small></td>
+    <td class="num">{{ i.gross_cents | money(i.currency) }}</td>
+    <td>{{ i.received_at | age }}</td>
+    <td>
+      {% if user.has('clerk','supervisor','admin') %}
+      <div class="stack">
+        <a class="btn" href="/vendors/new?invoice={{ i.id }}">Add this vendor</a>
+        <form method="post" action="/vendors/setup/{{ i.id }}/attach" class="btn-row">
+          <select name="vendor_id" aria-label="Existing vendor" style="min-width:200px"><option value="">Attach to existing…</option>
+            {% for v in vendors %}<option value="{{ v.id }}">{{ v.legal_name }}{% if v.sap_vendor_number %} ({{ v.sap_vendor_number }}){% endif %}</option>{% endfor %}</select>
+          <button class="btn secondary" type="submit">Attach</button>
+        </form>
+      </div>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">Nothing is waiting for a vendor.</p>
+{% endif %}
+{% endblock %}

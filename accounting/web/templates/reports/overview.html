@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Reports — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Reports</p><h1>How the queue is moving</h1>
+<p class="asof">As of {{ as_of | local }} · Live figures from the portal database</p></div>
+<div class="btn-row"><a class="btn secondary" href="/reports/month-end">Month-end listing</a></div></div>
+
+<h2>Cycle time, median business days (last 90 days)</h2>
+<div class="cards">
+  <div class="card tile"><h3>Receipt to SAP entry</h3><span class="count">{{ r.cycle.receipt_to_entered if r.cycle.receipt_to_entered is not none else '—' }}</span><p>The primary measure: from the day an invoice arrived to the day it was keyed into SAP.</p></div>
+  <div class="card tile"><h3>Receipt to routed</h3><span class="count">{{ r.cycle.receipt_to_routed if r.cycle.receipt_to_routed is not none else '—' }}</span><p>Capture, review and vendor set-up.</p></div>
+  <div class="card tile"><h3>Routed to approved</h3><span class="count">{{ r.cycle.routed_to_approved if r.cycle.routed_to_approved is not none else '—' }}</span><p>Time in approvers' hands.</p></div>
+  <div class="card tile"><h3>Approved to entered</h3><span class="count">{{ r.cycle.approved_to_entered if r.cycle.approved_to_entered is not none else '—' }}</span><p>Waiting in the approved queue for SAP entry.</p></div>
+</div>
+
+<h2>Right now</h2>
+<div class="cards">
+  <a class="card tile" href="/invoices?state=AP_REVIEW"><h3>AP workload</h3><span class="count {{ 'warn' if r.ap_workload }}">{{ r.ap_workload }}</span><p>Needs AP review plus unknown vendors.</p></a>
+  <a class="card tile" href="/quarantine"><h3>Quarantine</h3><span class="count {{ 'bad' if r.quarantine }}">{{ r.quarantine }}</span><p>Messages held for the Controller.</p></a>
+  <div class="card tile"><h3>Touchless rate</h3><span class="count">{{ r.touchless_rate ~ '%' if r.touchless_rate is not none else '—' }}</span><p>{{ r.touchless_n }} of {{ r.past_received_n }} invoices in the last {{ r.window_days }} days reached approval with no hand correction.</p></div>
+</div>
+
+<h2>Queue by status, oldest first</h2>
+{% if r.by_status %}
+<table><thead><tr><th>Status</th><th class="num">Invoices</th><th>Oldest received</th><th>Age</th></tr></thead><tbody>
+{% for s in r.by_status %}<tr class="clickable" data-href="/invoices?state={{ s.state }}"><td><span class="chip state-{{ s.state }}">{{ s.state.replace('_',' ') }}</span></td><td class="num">{{ s.n }}</td><td>{{ s.oldest | local }}</td><td>{{ s.oldest | age }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="empty">Nothing is open.</p>{% endif %}
+
+<h2>Approver backlog</h2>
+{% if r.backlog %}
+<table><thead><tr><th>Approver</th><th class="num">Waiting</th><th>Oldest</th><th class="num">Business days</th></tr></thead><tbody>
+{% for b in r.backlog %}<tr><td>{{ b.display_name }}</td><td class="num">{{ b.n }}</td><td>{{ b.oldest | local }}</td><td class="num {{ 'warn' if b.oldest_bd >= 2 }}">{{ b.oldest_bd }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="empty">No approvals are waiting on anyone.</p>{% endif %}
+
+<h2>Aging by sponsor</h2>
+{% if r.aging %}
+<table><thead><tr><th>Sponsor</th><th class="num">Open</th><th class="num">Over 7 days</th><th class="num">Over 14 days</th><th>Oldest</th></tr></thead><tbody>
+{% for a in r.aging %}<tr><td>{{ a.sponsor }}</td><td class="num">{{ a.n }}</td><td class="num">{{ a.over_7 }}</td><td class="num">{{ a.over_14 }}</td><td>{{ a.oldest | age }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="empty">No open invoices.</p>{% endif %}
+{% endblock %}

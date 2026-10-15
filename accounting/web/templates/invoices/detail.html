@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ pn }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Invoice</p><h1>{{ pn }} <span class="chip state-{{ inv.state }}">{{ inv.state.replace('_',' ') }}</span></h1>
+<p class="asof">As of {{ as_of | local }} · Received {{ inv.received_at | local }} ({{ inv.received_at | age }} ago)</p></div>
+<div class="btn-row"><a class="btn secondary" href="/invoices">All invoices</a>
+{% if user.has('controller','supervisor','cfo','admin','auditor') %}<a class="btn secondary" href="/reports/audit/{{ inv.id }}.csv">Audit history (CSV)</a>{% endif %}</div></div>
+
+{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+{% if note %}<p class="form-note">{{ note }}</p>{% endif %}
+
+{% if inv.tags or inv.soft_signals %}
+<div class="banner {{ 'warn' if inv.soft_signals else 'info' }}">
+  {% for t in inv.tags %}<span class="chip tag {{ t }}">{{ t.replace('_',' ') }}</span> {% endfor %}
+  {% if inv.soft_signals %}<strong>Signals to be aware of:</strong><ul>{% for s in inv.soft_signals %}<li>{{ s.replace('_',' ') }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}
+{% if not inv.split_confirmed %}
+<div class="banner warn"><strong>This file may hold more than one invoice.</strong> The portal guessed at the split; confirm it or set the extra ones aside.
+{% if can_act %}<form method="post" action="/invoices/{{ inv.id }}/confirm-split" style="margin-top:10px"><button class="btn secondary" type="submit">Confirm split</button></form>{% endif %}</div>
+{% endif %}
+{% if inv.state == 'VENDOR_SETUP' %}
+<div class="banner warn"><strong>This vendor is not in the portal yet.</strong> {% if can_act %}<a href="/vendors/new?from_invoice={{ inv.id }}">Add this vendor</a> to release the invoice.{% endif %}</div>
+{% endif %}
+
+<div class="detail">
+  <section class="pages" aria-label="Invoice pages">
+    {% for p in pages %}<img src="/invoices/{{ inv.id }}/page/{{ p }}" alt="{{ pn }}, page {{ p }}" loading="lazy">{% endfor %}
+    {% if not pages %}<p class="empty">The pages have not been rendered yet.</p>{% endif %}
+  </section>
+  <section class="fields">
+    <h2 style="margin-top:0">Fields</h2>
+    <dl>
+      <dt>Vendor</dt><dd>{{ inv.vendor or '—' }}{% if inv.sap_vendor_number %} <span class="conf">SAP {{ inv.sap_vendor_number }}</span>{% endif %}</dd>
+      {% for f in fields %}
+      <dt>{{ f.label }}</dt>
+      <dd class="{{ 'low' if f.low }}">{% if f.money %}{{ f.value | money(inv.currency) }}{% elif f.value is none %}—{% else %}{{ f.value }}{% endif %}
+        {% if f.confidence is not none %}<span class="conf">{{ (f.confidence * 100) | round | int }}% sure</span>{% endif %}</dd>
+      {% endfor %}
+      {% if inv.sap_document_number %}<dt>SAP document</dt><dd>{{ inv.sap_document_number }}</dd>{% endif %}
+    </dl>
+    <p class="caption">Highlighted values were read with low confidence — check them against the page.</p>
+
+    {% if lines %}
+    <h3>Lines</h3>
+    <table><thead><tr><th>#</th><th>Description</th><th class="num">Amount</th></tr></thead><tbody>
+    {% for l in lines %}<tr><td>{{ l.line_no }}</td><td>{{ l.description or '—' }}</td><td class="num">{{ l.amount_cents | money(inv.currency) }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+
+    {% if requests or signatures %}
+    <h3>Approvals</h3>
+    <table><thead><tr><th>Who</th><th>Role</th><th>Status</th><th>Due</th></tr></thead><tbody>
+    {% for r in requests %}<tr><td>{{ r.assignee }}</td><td>{{ r.role }}</td><td>{{ r.status }}</td><td>{{ r.due_at | local }}</td></tr>{% endfor %}
+    {% for s in signatures %}<tr><td>{{ s.signer }}</td><td>{{ s.signer_role }}</td><td>{{ s.decision }}d {{ s.signed_at | local }}{% if s.status != 'valid' %} ({{ s.status }}){% endif %}</td><td></td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+
+    {% if can_act and inv.state == 'AP_REVIEW' %}
+    <h3>Correct the fields</h3>
+    <form method="post" action="/invoices/{{ inv.id }}/edit" class="stack">
+      <label>Vendor as printed <input type="text" name="vendor_name_raw" value="{{ inv.vendor_name_raw or '' }}"></label>
+      <label>Invoice number <input type="text" name="invoice_number" value="{{ inv.invoice_number or '' }}"></label>
+      <label>Invoice date <input type="date" name="invoice_date" value="{{ inv.invoice_date.isoformat() if inv.invoice_date else '' }}"></label>
+      <label>Due date <input type="date" name="due_date" value="{{ inv.due_date.isoformat() if inv.due_date else '' }}"></label>
+      <label>Currency <input type="text" name="currency" value="{{ inv.currency or 'USD' }}" maxlength="3"></label>
+      <label>Gross <input type="text" name="gross" inputmode="decimal" value="{{ cents_text(inv.gross_cents) }}"></label>
+      <label>Tax <input type="text" name="tax" inputmode="decimal" value="{{ cents_text(inv.tax_cents) }}"></label>
+      <label>PO number <input type="text" name="po_number" value="{{ inv.po_number or '' }}"></label>
+      <p class="form-note">Saving sends the invoice back through routing. If anyone had already approved it, those approvals are voided and must be given again.</p>
+      <div class="btn-row"><button class="btn" type="submit">Save and continue</button></div>
+    </form>
+    {% endif %}
+
+    {% if can_act and inv.state in ('RECEIVED', 'AP_REVIEW') %}
+    <h3>Set aside</h3>
+    <form method="post" action="/invoices/{{ inv.id }}/duplicate" class="stack" data-confirm="Mark this as a duplicate? It will be closed.">
+      <label>Duplicate of portal number <input type="text" name="of_portal_number" placeholder="AP-000123"></label>
+      <button class="btn secondary" type="submit">Mark as duplicate</button>
+    </form>
+    <form method="post" action="/invoices/{{ inv.id }}/divert" class="stack" style="margin-top:14px" data-confirm="Set this aside? It will be closed as not an invoice to pay.">
+      <label>Reason <select name="reason">{% for k, v in divert_reasons.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      <label>Note (optional) <input type="text" name="note"></label>
+      <button class="btn secondary" type="submit">Divert</button>
+    </form>
+    {% endif %}
+
+    {% if can_act and inv.state == 'APPROVED' %}
+    <h3>Record SAP entry</h3>
+    <form method="post" action="/invoices/{{ inv.id }}/sap" class="stack"><input type="hidden" name="back" value="/invoices/{{ inv.id }}">
+      <label>SAP document number <input type="text" name="sap_document_number" maxlength="20" required></label>
+      <button class="btn" type="submit">Record SAP document number</button>
+    </form>
+    {% endif %}
+
+    {% if can_act and is_controller and not terminal %}
+    <h3>Void (Controller)</h3>
+    <form method="post" action="/invoices/{{ inv.id }}/void" class="stack" data-confirm="Void this invoice? This cannot be undone.">
+      <label>Reason <input type="text" name="reason" required></label>
+      <label>Second person <select name="second_person_id" required><option value="">Choose…</option>{% for p in second_people %}<option value="{{ p.id }}">{{ p.display_name }}</option>{% endfor %}</select></label>
+      <button class="btn danger" type="submit">Void invoice</button>
+    </form>
+    {% endif %}
+  </section>
+</div>
+
+<h2>Questions</h2>
+{% if questions %}
+{% for q in questions %}
+<div class="card" style="margin-bottom:12px">
+  <p style="margin:0 0 6px"><strong>{{ q.asker }}</strong> asked on {{ q.asked_at | local }}:</p>
+  <p style="margin:0 0 10px">{{ q.question }}</p>
+  {% if q.answered_at %}<p style="margin:0"><strong>{{ q.answerer }}</strong> answered on {{ q.answered_at | local }}: {{ q.answer }}</p>
+  {% elif can_act %}
+  <form method="post" action="/invoices/{{ inv.id }}/answer/{{ q.id }}" class="stack"><label>Your answer <textarea name="answer" required></textarea></label><button class="btn" type="submit">Send answer</button></form>
+  {% else %}<p class="muted" style="margin:0">Waiting for AP to answer.</p>{% endif %}
+</div>
+{% endfor %}
+{% else %}<p class="empty">No questions have been asked.</p>{% endif %}
+
+<h2>What has happened</h2>
+<ul class="timeline">
+{% for e in events %}<li><span>{{ e.at | local }}</span><span>{{ e.text }}{% if e.actor %} <span class="muted">— {{ e.actor }}</span>{% endif %}</span></li>{% endfor %}
+</ul>
+{% endblock %}

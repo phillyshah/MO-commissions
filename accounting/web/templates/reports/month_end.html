@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Month-end — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Reports</p><h1>Received, not yet entered</h1>
+<p class="asof">As of {{ as_of | local }} · Cutoff {{ cutoff | day }}</p></div>
+<form method="get" action="/reports/month-end" class="btn-row"><label>Cutoff date <input type="date" name="cutoff" value="{{ cutoff.isoformat() }}"></label><button class="btn secondary" type="submit">Show</button></form></div>
+
+<p class="muted">Every invoice that had arrived by the end of {{ cutoff | day }} and had not been keyed into SAP by then. Use it for the accrual; the receive date puts the expense in the right period.</p>
+
+{% if rows %}
+<table><thead><tr><th>Portal #</th><th>Vendor</th><th>Invoice #</th><th>Received</th><th>Status now</th><th class="num">Gross</th><th>Entered</th></tr></thead><tbody>
+{% for r in rows %}<tr class="clickable" data-href="/invoices/{{ r.id }}"><td>AP-{{ '%06d' % r.portal_number }}</td><td>{{ r.vendor or '—' }}</td><td>{{ r.invoice_number or '—' }}</td><td>{{ r.received_at | local }}</td><td><span class="chip state-{{ r.state }}">{{ r.state.replace('_',' ') }}</span></td><td class="num">{{ r.gross_cents | money(r.currency) }}</td><td>{{ r.entered_at | local }}</td></tr>{% endfor %}
+<tr><td colspan="5"><strong>{{ rows | length }} invoice{{ '' if rows | length == 1 else 's' }}</strong></td><td class="num"><strong>{{ total_cents | money }}</strong></td><td></td></tr>
+</tbody></table>
+{% else %}<p class="empty">Nothing was received and still unentered at that cutoff.</p>{% endif %}
+
+<h2>Controller sign-off</h2>
+{% for s in signoffs %}<p class="banner good">Signed off by {{ s.display_name or 'the Controller' }} on {{ s.at | local }} — {{ s.payload.count }} invoice(s).</p>{% endfor %}
+{% if can_sign %}
+<form method="post" action="/reports/month-end/sign-off" data-confirm="Sign off this listing for {{ cutoff | day }}? This is recorded in the audit log."><input type="hidden" name="cutoff" value="{{ cutoff.isoformat() }}"><button class="btn" type="submit">Controller sign-off</button></form>
+{% else %}<p class="muted">Only the Controller can sign this listing off.</p>{% endif %}
+{% endblock %}

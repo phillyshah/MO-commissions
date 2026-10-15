@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Approved queue — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Accounts payable</p><h1>Approved, waiting for SAP entry</h1><p class="asof">As of {{ as_of | local }} · Oldest first</p></div>
+<div class="btn-row"><a class="btn" href="/invoices/approved.csv">Download CSV</a></div></div>
+
+{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+<p class="muted">Key each invoice into SAP, then record the SAP document number here. That one entry ends the invoice's clock.</p>
+
+{% if rows %}
+<table><thead><tr><th>Portal #</th><th>Vendor</th><th>SAP vendor</th><th>Invoice #</th><th>Invoice date</th><th class="num">Gross</th><th>Approved</th><th>Approvers</th><th>SAP document number</th></tr></thead><tbody>
+{% for r in rows %}
+<tr>
+  <td><a href="/invoices/{{ r.id }}">AP-{{ '%06d' % r.portal_number }}</a></td>
+  <td>{{ r.vendor or '—' }}</td><td>{{ r.sap_vendor_number or '—' }}</td><td>{{ r.invoice_number or '—' }}</td><td>{{ r.invoice_date | day }}</td>
+  <td class="num">{{ r.gross_cents | money(r.currency) }}</td><td>{{ r.approved_at | local }}</td>
+  <td>{{ r.approvers or ('Auto-released' if not r.signature_count else '—') }}</td>
+  <td><form method="post" action="/invoices/{{ r.id }}/sap" class="btn-row" style="flex-wrap:nowrap"><input type="hidden" name="back" value="/invoices/approved">
+      <input type="text" name="sap_document_number" maxlength="20" aria-label="SAP document number for AP-{{ '%06d' % r.portal_number }}" style="min-width:150px" required>
+      <button class="btn" type="submit">Record</button></form></td>
+</tr>
+{% endfor %}
+</tbody></table>
+{% else %}<p class="empty">Nothing is waiting for SAP entry.</p>{% endif %}
+{% endblock %}

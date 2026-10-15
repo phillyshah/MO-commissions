@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ vendor.legal_name }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div><p class="eyebrow"><a href="/vendors">Vendors</a></p><h1>{{ vendor.legal_name }}</h1>
+    <p class="muted">SAP {{ vendor.sap_vendor_number or '— not assigned' }} · {{ vendor.country or 'country not set' }} ·
+      <span class="chip state-{{ 'APPROVED' if vendor.status == 'active' else ('QUARANTINED' if vendor.status == 'blocked' else 'VENDOR_SETUP') }}">{{ vendor.status }}</span></p></div>
+  {% if can_write %}<div class="btn-row"><a class="btn" href="/vendors/{{ vendor.id }}/edit">Edit</a></div>{% endif %}
+</div>
+
+{% if request.query_params.get('proposed') %}<p class="banner info">Your change was recorded and is waiting for a second person to approve it.</p>{% endif %}
+
+{% set pending = changes | selectattr('applied_at', 'none') | selectattr('rejected_at', 'none') | list %}
+{% if pending %}
+<div class="banner warn">
+  <strong>{{ pending|length }} change{{ '' if pending|length == 1 else 's' }} waiting for approval.</strong>
+  <ul>
+  {% for c in pending %}
+    <li>Proposed by {{ c.proposed_by_name }} on {{ c.proposed_at | local }}:
+      {% for k, d in c.diff.items() %}<span class="chip tag">{{ k }}: {{ d.from if d.from is not none else '—' }} → {{ d.to if d.to is not none else '—' }}</span> {% endfor %}
+      {% if can_write and c.proposed_by != user.id %}
+      <form method="post" action="/vendors/changes/{{ c.id }}/approve" style="display:inline"><button class="btn approve" type="submit">Approve</button></form>
+      <form method="post" action="/vendors/changes/{{ c.id }}/reject" style="display:inline"><input type="hidden" name="reason" value="rejected on review"><button class="btn secondary" type="submit">Reject</button></form>
+      {% elif c.proposed_by == user.id %}<small>You proposed this; someone else must approve it.</small>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="detail">
+<div>
+  <div class="card fields">
+    <h2 style="margin-top:0">Record</h2>
+    <dl>
+      <dt>Legal name</dt><dd>{{ vendor.legal_name }}</dd>
+      <dt>TIN</dt><dd>{{ 'on file (' ~ (vendor.tin_status or 'pending') ~ ')' if vendor.tin_enc else 'not on file' }}</dd>
+      <dt>Remit-to</dt><dd>{% if vendor.remit_to %}{{ vendor.remit_to.name or '' }}{% if vendor.remit_to.line1 %}, {{ vendor.remit_to.line1 }}{% endif %}{% if vendor.remit_to.line2 %}, {{ vendor.remit_to.line2 }}{% endif %}{% if vendor.remit_to.city %}, {{ vendor.remit_to.city }}{% endif %} {{ vendor.remit_to.state or '' }} {{ vendor.remit_to.postal or '' }} {{ vendor.remit_to.country or '' }}{% else %}—{% endif %}</dd>
+      <dt>Sponsor</dt><dd>{{ sponsor.display_name ~ ' (' ~ sponsor.email ~ ')' if sponsor else '— none set' }}</dd>
+      <dt>Backup sponsor</dt><dd>{{ backup.display_name ~ ' (' ~ backup.email ~ ')' if backup else '—' }}</dd>
+      <dt>Default GL / cost center</dt><dd>{{ vendor.default_gl or '—' }} / {{ vendor.default_cost_center or '—' }}</dd>
+      <dt>Payment terms</dt><dd>{{ vendor.payment_terms or '—' }}</dd>
+      <dt>ASL status</dt><dd>{{ vendor.asl_status or '—' }}</dd>
+      <dt>Flags</dt><dd>
+        {% if vendor.hcp %}<span class="chip tag hcp">HCP</span>{% endif %}
+        {% if vendor.quality_critical %}<span class="chip tag">Quality-critical</span>{% endif %}
+        {% if vendor.fcpa_agent %}<span class="chip tag">FCPA agent</span>{% endif %}
+        {% if vendor.intercompany %}<span class="chip tag">Intercompany</span>{% endif %}
+        {% if vendor.po_required %}<span class="chip tag">PO required</span>{% endif %}
+        {% if not (vendor.hcp or vendor.quality_critical or vendor.fcpa_agent or vendor.intercompany or vendor.po_required) %}—{% endif %}</dd>
+      <dt>Recurring</dt><dd>{{ vendor.recurring_schedule or 'no' }}{% if vendor.recurring_tolerance_pct %} (±{{ vendor.recurring_tolerance_pct }}%){% endif %}</dd>
+      <dt>Phone</dt><dd>{{ vendor.phone or '—' }}{% if vendor.phone_since %} <small>since {{ vendor.phone_since | day }}{% if (vendor.phone_since | age) != 'today' %} — usable for callback after 90 days{% endif %}</small>{% endif %}</dd>
+    </dl>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2 style="margin-top:0">Bank fingerprint</h2>
+    {% if fingerprint %}
+      <p style="font-size:16px"><strong>Account ending {{ fingerprint.last4 }}</strong> · on file since {{ fingerprint.effective_from | local }} · source: {{ fingerprint.source.replace('_',' ') }}</p>
+      <p class="muted">The portal keeps only a keyed fingerprint and the last four digits. The full account number is never stored here.</p>
+    {% else %}
+      <p class="empty">No bank fingerprint yet. It is recorded from the first AP-verified invoice or an import.</p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2 style="margin-top:0">Allowed sender domains and addresses</h2>
+    {% if domains %}
+    <table><thead><tr><th>Pattern</th><th>Status</th><th>Added by</th><th></th></tr></thead><tbody>
+    {% for d in domains %}
+      <tr><td>{{ d.pattern }}</td>
+        <td><span class="chip state-{{ 'APPROVED' if d.status == 'approved' else ('AP_REVIEW' if d.status == 'proposed' else 'REJECTED') }}">{{ d.status }}</span></td>
+        <td>{{ d.added_by_name }}</td>
+        <td class="btn-row">
+          {% if can_write and d.status == 'proposed' %}<form method="post" action="/vendors/{{ vendor.id }}/domains/{{ d.id }}/approve"><button class="btn approve" type="submit">Approve</button></form>{% endif %}
+          {% if can_write and d.status != 'revoked' %}<form method="post" action="/vendors/{{ vendor.id }}/domains/{{ d.id }}/revoke"><button class="btn secondary" type="submit">Revoke</button></form>{% endif %}
+        </td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty">No approved sender domains. Invoices from this vendor will not match by sender until one is added.</p>{% endif %}
+    {% if can_write %}
+    <form method="post" action="/vendors/{{ vendor.id }}/domains" class="btn-row" style="margin-top:12px">
+      <label style="flex:1;min-width:220px">Add a domain or address<input type="text" name="pattern" placeholder="acme.com or billing@acme.com" required></label>
+      <button class="btn" type="submit" style="align-self:end">Add</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2 style="margin-top:0">Billing platforms</h2>
+    <p class="muted">A platform's sending domain is accepted only when the account id below appears in the message.</p>
+    {% if platforms %}
+    <table><thead><tr><th>Platform</th><th>Account id</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for p in platforms %}
+      <tr><td>{{ p.display_name }}</td><td>{{ p.account_id }}</td>
+        <td><span class="chip state-{{ 'APPROVED' if p.approved_by else 'AP_REVIEW' }}">{{ 'approved' if p.approved_by else 'proposed' }}</span></td>
+        <td>{% if can_write and not p.approved_by %}<form method="post" action="/vendors/{{ vendor.id }}/platforms/{{ p.id }}/approve"><button class="btn approve" type="submit">Approve</button></form>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty">None.</p>{% endif %}
+    {% if can_write %}
+    <form method="post" action="/vendors/{{ vendor.id }}/platforms" class="btn-row" style="margin-top:12px">
+      <label>Platform<select name="platform_id">{% for p in all_platforms %}<option value="{{ p.id }}">{{ p.display_name }}</option>{% endfor %}</select></label>
+      <label style="flex:1;min-width:200px">Account id<input type="text" name="account_id" required></label>
+      <button class="btn" type="submit" style="align-self:end">Add</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div>
+  <div class="card">
+    <h2 style="margin-top:0">Recent invoices</h2>
+    {% if invoices %}
+    <table><thead><tr><th>Portal no.</th><th>Invoice</th><th>Date</th><th class="num">Total</th><th>State</th></tr></thead><tbody>
+    {% for i in invoices %}
+      <tr class="clickable"><td><a href="/invoices/{{ i.id }}">AP-{{ '%06d' % i.portal_number }}</a></td><td>{{ i.invoice_number or '—' }}</td>
+        <td>{{ i.invoice_date | day }}</td><td class="num">{{ i.gross_cents | money(i.currency) }}</td>
+        <td><span class="chip state-{{ i.state }}">{{ i.state.replace('_',' ') }}</span></td></tr>
+    {% endfor %}
+    </tbody></table>
+    {% else %}<p class="empty">No invoices yet.</p>{% endif %}
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2 style="margin-top:0">Change history</h2>
+    {% if changes %}
+    <ul class="timeline">
+    {% for c in changes %}
+      <li><span>{{ c.proposed_at | local }}</span>
+        <span>{% if c.applied_at %}Applied{% elif c.rejected_at %}Rejected{% else %}Pending{% endif %} —
+          {{ c.diff.keys() | join(', ') }} · by {{ c.proposed_by_name }}{% if c.approved_by_name %}, approved by {{ c.approved_by_name }}{% endif %}</span></li>
+    {% endfor %}
+    </ul>
+    {% else %}<p class="empty">No changes recorded.</p>{% endif %}
+    <p class="caption">Dual control is {{ 'ON — a second person approves every change' if dual else 'OFF — changes apply immediately (recorded decision until cutover)' }}.</p>
+  </div>
+</div>
+</div>
+{% endblock %}

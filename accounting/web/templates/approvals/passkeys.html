@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}My passkeys — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Security</p><h1>My passkeys</h1>
+  <p class="muted">A passkey is how you sign approvals. Two are recommended: one on your phone, one on your laptop.</p></div>
+  <button class="help-button" type="button" data-help="help-passkey" aria-label="Why do I need to tap my passkey?">?</button></div>
+
+{% if error %}<p class="banner bad" role="alert">{{ error }}</p>{% endif %}
+{% if done == 'enrolled' %}<p class="banner good" role="status">Your passkey is enrolled. You and the Controller have been sent a note about it.</p>{% endif %}
+{% if done == 'revoked' %}<p class="banner info" role="status">That passkey no longer works.</p>{% endif %}
+<p id="webauthn-status" class="form-error" role="alert" hidden></p>
+
+<div class="card" style="max-width:560px">
+  <h2 style="margin-top:0">Add a passkey</h2>
+  <p>You need a one-time code from the Controller. They give it to you in person, by phone or in chat — never by email.</p>
+  <form class="stack" id="enroll-form" onsubmit="return false">
+    <label>Enrollment code<input type="text" name="code" id="enroll-code" autocomplete="one-time-code" inputmode="text" required></label>
+    <label>Name this device (optional)<input type="text" name="label" id="enroll-label" maxlength="80" placeholder="e.g. my iPhone"></label>
+    <div class="btn-row"><button class="btn" type="button" data-webauthn="register" data-code-from="enroll-code" data-label-from="enroll-label">Create passkey on this device</button></div>
+  </form>
+</div>
+
+<h2>Enrolled</h2>
+{% if keys %}
+<table><thead><tr><th>Device</th><th>Enrolled</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>
+{% for k in keys %}
+<tr><td>{{ k.label or 'Unnamed passkey' }}</td><td>{{ k.created_at | day }}</td><td>{{ k.last_used_at | local if k.last_used_at else 'Never' }}</td>
+  <td><span class="chip {{ 'state-APPROVED' if k.status == 'active' else 'state-REJECTED' }}">{{ k.status }}</span></td>
+  <td>{% if k.status == 'active' %}<form method="post" action="/passkeys/{{ k.id }}/revoke" data-confirm="Remove this passkey? You will need a new enrollment code to add it again.">
+    <button class="link-button" type="submit">Remove</button></form>{% endif %}</td></tr>
+{% endfor %}
+</tbody></table>
+{% else %}<p class="empty">No passkeys yet.</p>{% endif %}
+
+{% include "approvals/_help_passkey.html" %}
+<script src="/static/webauthn.js"></script>
+{% endblock %}

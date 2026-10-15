@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Import vendors — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow"><a href="/vendors">Vendors</a></p><h1>Import vendors from CSV</h1>
+  <p class="muted">Rows are matched to existing vendors by SAP vendor number, then by legal name. Bank routing and account numbers are used only to compute the fingerprint and are not kept.</p></div></div>
+
+{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+{% if report %}
+<div class="banner {{ 'warn' if report.errors else 'good' }}">
+  <strong>Import finished.</strong> {{ report.created }} created, {{ report.updated }} updated{% if report.pending %}, {{ report.pending }} waiting for a second approval{% endif %}.
+  {% if report.errors %}<ul>{% for e in report.errors[:50] %}<li>{{ e }}</li>{% endfor %}{% if report.errors|length > 50 %}<li>… and {{ report.errors|length - 50 }} more</li>{% endif %}</ul>{% endif %}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="stack card" style="max-width:760px">
+  <label>CSV file<input type="file" name="file" accept=".csv,text/csv" required style="min-height:44px;padding:10px"></label>
+  <button class="btn" type="submit">Import</button>
+</form>
+
+<h2>Columns</h2>
+<p class="muted">Header row required. Only <code>legal_name</code> is mandatory; unknown columns are ignored. Booleans accept yes/no, true/false, 1/0, x. <code>allowed_domains</code> is a semicolon-separated list.</p>
+<table style="max-width:760px"><tbody>
+{% for c in columns %}<tr><td><code>{{ c }}</code></td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

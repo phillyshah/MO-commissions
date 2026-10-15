@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Admin — Daily grants report — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Admin</p><h1>Grants, removals and disables</h1><p class="asof">As of {{ as_of | local }} · Last 7 days</p></div></div>
+{% include "admin/_nav.html" %}
+<p class="muted">Every access and administration event, newest first. The same list goes to the Controller by email every morning.</p>
+{% if rows %}<table><thead><tr><th>When</th><th>What</th><th>By</th><th>Detail</th></tr></thead><tbody>
+{% for r in rows %}<tr><td>{{ r.at | local }}</td><td>{{ (r.reason_code or r.event_type).replace('_',' ') }}</td><td>{{ r.actor or 'system' }}</td><td><small>{{ r.payload_text }}</small></td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">Nothing in the last seven days.</p>{% endif %}
+{% endblock %}

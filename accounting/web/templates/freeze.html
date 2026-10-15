@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Freeze my access</title>
+<link rel="stylesheet" href="/static/portal.css"></head>
+<body><main class="login-shell"><section class="login-card">
+<h1>Freeze my access</h1>
+<p class="login-copy">This signs you out everywhere, removes your passkeys and pauses your approvals until the Controller restores them. Use it if you think someone else has your sign-in.</p>
+<form method="post" action="/freeze/{{ token }}"><button type="submit" class="btn danger">Freeze my access now</button></form>
+</section></main></body></html>

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Quarantine {{ portal }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Quarantine case</p>
+  <h1>{{ portal }}{% if inv and inv.vendor_legal_name %} · {{ inv.vendor_legal_name }}{% elif inv and inv.vendor_name_raw %} · {{ inv.vendor_name_raw }} (unmatched){% endif %}</h1>
+  <p class="asof">As of {{ as_of | local }} · opened {{ case.opened_at | local }} ({{ case.opened_at | age }} ago)
+    {% if escalated %}· <span class="chip state-QUARANTINED">Escalated to CFO</span>{% endif %}</p></div>
+  <a class="btn secondary" href="/quarantine">Back to quarantine</a></div>
+
+{% if error %}<p class="banner bad" role="alert">{{ error }}</p>{% endif %}
+{% if done == 'pending' %}<p class="banner info" role="status">Your callback is recorded. The release happens when {{ second_name or 'the second person' }} confirms it on this page.</p>{% endif %}
+{% if case.state != 'open' %}<p class="banner info">This case was <strong>{{ case.state }}</strong> on {{ case.decision_at | local }}{% if reviewer_name %} by {{ reviewer_name }}{% endif %}{% if second_name %} and {{ second_name }}{% endif %}.{% if case.decision_reason and case.decision_reason not in ('released','reported') %} Reason: {{ case.decision_reason }}{% endif %}</p>{% endif %}
+
+<div class="detail">
+  <section class="pages" aria-label="Invoice pages">
+    {% for n in pages %}<img src="/invoices/{{ inv.id }}/page/{{ n }}" alt="Invoice {{ portal }}, page {{ n }}" loading="lazy">{% endfor %}
+    {% if not pages %}<p class="empty">No rendered pages. {% if case.triggers and 'risky_file' in case.triggers %}The attachment was never opened.{% endif %}</p>{% endif %}
+  </section>
+
+  <section class="fields">
+    <div class="card"><h2 style="margin-top:0">Why it was held</h2>
+      <ul style="margin:0; padding-left:18px; font-size:15px">{% for code, text in why %}<li style="margin-bottom:8px"><strong>{{ code | replace('_',' ') }}.</strong> {{ text }}</li>{% endfor %}</ul>
+      {% if msg %}<dl style="margin-top:14px"><dt>Sender</dt><dd>{{ msg.original_sender or msg.from_addr or '—' }}{% if msg.forwarded_by %} <small>(forwarded by {{ msg.forwarded_by }})</small>{% endif %}</dd>
+        <dt>Subject</dt><dd>{{ msg.subject or '—' }}</dd><dt>Path</dt><dd>{{ msg.trust | replace('_',' ') }}</dd></dl>{% endif %}
+    </div>
+
+    {% if inv %}
+    <div class="card" style="margin-top:16px"><h2 style="margin-top:0">Invoice</h2>
+      <dl><dt>Invoice number</dt><dd>{{ inv.invoice_number or '—' }}</dd><dt>Date</dt><dd>{{ inv.invoice_date | day }}</dd>
+        <dt>Amount</dt><dd>{{ inv.gross_cents | money(inv.currency) }}</dd><dt>PO</dt><dd>{{ inv.po_number or '—' }}</dd>
+        <dt>Remit to</dt><dd>{% if inv.remit_to %}{{ inv.remit_to.name or '' }} {{ inv.remit_to.line1 or '' }} {{ inv.remit_to.city or '' }} {{ inv.remit_to.state or '' }} {{ inv.remit_to.postal or '' }}{% else %}—{% endif %}</dd>
+        <dt>State</dt><dd><span class="chip state-{{ inv.state }}">{{ inv.state | replace('_',' ') }}</span></dd></dl>
+    </div>
+
+    <div class="card" style="margin-top:16px"><h2 style="margin-top:0">Bank details check</h2>
+      <dl><dt>On file (last 4)</dt><dd>{{ fp.on_file_last4 or 'none on file' }}{% if fp.since %} <small>since {{ fp.since | day }}{% if fp.source %}, {{ fp.source | replace('_',' ') }}{% endif %}</small>{% endif %}</dd>
+        <dt>On this invoice</dt><dd>{{ fp.invoice_last4 or 'not printed' }}</dd>
+        <dt>Result</dt><dd>{% if fp.matches is none %}<span class="chip tag">Cannot compare</span>{% elif fp.matches %}<span class="chip state-APPROVED">Matches</span>{% else %}<span class="chip state-FRAUD">Different</span>{% endif %}</dd></dl>
+    </div>
+
+    <div class="card" style="margin-top:16px"><h2 style="margin-top:0">This vendor's last invoices</h2>
+      {% if history %}<table><thead><tr><th>Invoice</th><th>Date</th><th class="num">Amount</th><th>Bank</th><th>Status</th></tr></thead><tbody>
+        {% for h in history %}<tr><td>{{ h.invoice_number or '—' }}</td><td>{{ h.invoice_date | day }}</td><td class="num">{{ h.gross_cents | money(h.currency) }}</td>
+          <td>{{ h.bank_last4 or '—' }}</td><td><span class="chip state-{{ h.state }}">{{ h.state | replace('_',' ') }}</span></td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="empty">No earlier invoices from this vendor.</p>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if case.state == 'open' and can_act %}
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin-top:0">Decision</h2>
+      {% if case.release_pending_at %}
+        <p class="banner warn">{{ reviewer_name }} recorded a callback ({{ callback_sources.get(case.callback_source, case.callback_source) }}, {{ case.callback_number }}){% if case.callback_note %}: “{{ case.callback_note }}”{% endif %}
+          and asked {{ second_name }} to confirm the release.</p>
+        {% if i_am_second %}
+          <form method="post" action="/quarantine/{{ case.id }}/release" data-confirm="Confirm the release? You are the second person on this decision.">
+            <div class="btn-row"><button class="btn approve" type="submit">Confirm release</button></div></form>
+        {% else %}<p class="muted">Only {{ second_name }} can confirm this release.</p>{% endif %}
+      {% else %}
+        <form method="post" action="/quarantine/{{ case.id }}/release" class="stack">
+          {% if needs_callback %}
+          <p class="form-note">This is a sender or bank case. Release needs a callback to the vendor on a number that did <strong>not</strong> come from the email, and a second person.</p>
+          <fieldset style="border:0; padding:0; margin:0"><legend style="font-weight:700; color:var(--navy); font-size:14px; margin-bottom:6px">Where did the phone number come from?</legend>
+            {% for k, label in callback_sources.items() %}<label style="display:flex; gap:10px; align-items:center; font-weight:400; min-height:44px"><input type="radio" name="callback_source" value="{{ k }}" required style="width:22px; height:22px"> {{ label }}</label>{% endfor %}
+          </fieldset>
+          <label>Number called<input type="tel" name="callback_number" required></label>
+          <label>Who you spoke to and what they confirmed<textarea name="note" required></textarea></label>
+          {% else %}
+          <label>Note (optional)<textarea name="note"></textarea></label>
+          {% endif %}
+          {% if needs_second %}
+          <label>Second person (another Controller or the CFO){% if not needs_callback %} — required above {{ second_person_cents | money }}{% endif %}
+            <select name="second_by" required><option value="">Choose…</option>{% for r in reviewers %}<option value="{{ r.id }}">{{ r.display_name }}</option>{% endfor %}</select></label>
+          {% endif %}
+          <div class="btn-row"><button class="btn approve" type="submit">{{ 'Record callback and ask second person' if needs_second else 'Release' }}</button></div>
+        </form>
+      {% endif %}
+      <hr style="border:0; border-top:1px solid var(--line); margin:18px 0">
+      <div class="btn-row">
+        <button class="btn danger" type="button" data-open-dialog="reject-dialog">Reject…</button>
+        <form method="post" action="/quarantine/{{ case.id }}/report" data-confirm="Report this message? The sender's domain {{ sender_domain or '' }} will be blocked and security notified.">
+          <button class="btn danger" type="submit">Report as fraud</button></form>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+</div>
+
+<dialog id="reject-dialog" aria-labelledby="reject-title"><h2 id="reject-title" style="margin-top:0">Reject this invoice</h2>
+  <p>The invoice is marked as fraud and kept on record. The sender is not blocked — use Report for that.</p>
+  <form method="post" action="/quarantine/{{ case.id }}/reject" class="stack"><label>Reason (required)<textarea name="reason" required minlength="3"></textarea></label>
+    <div class="btn-row"><button class="btn danger" type="submit">Reject</button><button class="btn secondary" type="button" data-close>Cancel</button></div></form></dialog>
+<script src="/static/webauthn.js"></script>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Add a vendor' if mode == 'new' else 'Edit ' ~ vendor.legal_name }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+{% set r = vendor.remit_to or {} %}
+<div class="topbar"><div><p class="eyebrow"><a href="/vendors">Vendors</a></p>
+  <h1>{{ 'Add a vendor' if mode == 'new' else 'Edit ' ~ vendor.legal_name }}</h1>
+  {% if dual %}<p class="muted">Dual control is on: your change is recorded and a different person must approve it before it applies.</p>
+  {% else %}<p class="muted">Changes apply immediately and are recorded in the audit log.</p>{% endif %}
+</div></div>
+
+{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+{% if vendor.invoice_id %}<p class="banner info">This vendor will be attached to the waiting invoice when saved.</p>{% endif %}
+
+<form method="post" class="stack card" style="max-width:860px">
+  {% if vendor.invoice_id %}<input type="hidden" name="invoice_id" value="{{ vendor.invoice_id }}">{% endif %}
+  <h2 style="margin-top:0">Identity</h2>
+  <label>Legal name<input type="text" name="legal_name" value="{{ vendor.legal_name or '' }}" required></label>
+  <div class="btn-row">
+    <label style="flex:1">SAP vendor number<input type="text" name="sap_vendor_number" value="{{ vendor.sap_vendor_number or '' }}"></label>
+    <label style="flex:1">Country<input type="text" name="country" value="{{ vendor.country or '' }}" placeholder="US"></label>
+  </div>
+  <label>TIN (nine digits; stored encrypted, shown only as "on file"){% if vendor.tin_enc %} — currently on file; leave blank to keep{% endif %}
+    <input type="text" name="tin" inputmode="numeric" autocomplete="off" placeholder="{{ 'on file' if vendor.tin_enc else '' }}"></label>
+
+  <h2>Remit-to</h2>
+  <label>Payee name<input type="text" name="remit_name" value="{{ r.name or '' }}"></label>
+  <label>Address line 1<input type="text" name="remit_line1" value="{{ r.line1 or '' }}"></label>
+  <label>Address line 2<input type="text" name="remit_line2" value="{{ r.line2 or '' }}"></label>
+  <div class="btn-row">
+    <label style="flex:2">City<input type="text" name="remit_city" value="{{ r.city or '' }}"></label>
+    <label style="flex:1">State<input type="text" name="remit_state" value="{{ r.state or '' }}"></label>
+    <label style="flex:1">Postal code<input type="text" name="remit_postal" value="{{ r.postal or '' }}"></label>
+    <label style="flex:1">Country<input type="text" name="remit_country" value="{{ r.country or '' }}"></label>
+  </div>
+
+  <h2>Bank fingerprint</h2>
+  <p class="form-note">The routing and account numbers are used once to compute a keyed fingerprint and the last four digits, then discarded. They are never stored in the portal.
+    {% if fingerprint %} Currently on file: account ending {{ fingerprint.last4 }} since {{ fingerprint.effective_from | day }}. Leave blank to keep it.{% endif %}</p>
+  <div class="btn-row">
+    <label style="flex:1">Routing number<input type="text" name="bank_routing" inputmode="numeric" autocomplete="off"></label>
+    <label style="flex:1">Account number<input type="text" name="bank_account" inputmode="numeric" autocomplete="off"></label>
+  </div>
+
+  <h2>Routing</h2>
+  <div class="btn-row">
+    <label style="flex:1">Sponsor<select name="default_sponsor_id"><option value="">— none —</option>
+      {% for p in people %}<option value="{{ p.id }}" {{ 'selected' if vendor.default_sponsor_id and (vendor.default_sponsor_id|string) == (p.id|string) }}>{{ p.display_name }} ({{ p.email }})</option>{% endfor %}</select></label>
+    <label style="flex:1">Backup sponsor<select name="backup_sponsor_id"><option value="">— none —</option>
+      {% for p in people %}<option value="{{ p.id }}" {{ 'selected' if vendor.backup_sponsor_id and (vendor.backup_sponsor_id|string) == (p.id|string) }}>{{ p.display_name }} ({{ p.email }})</option>{% endfor %}</select></label>
+  </div>
+  <div class="btn-row">
+    <label style="flex:1">Default GL<input type="text" name="default_gl" value="{{ vendor.default_gl or '' }}"></label>
+    <label style="flex:1">Default cost center<input type="text" name="default_cost_center" value="{{ vendor.default_cost_center or '' }}"></label>
+    <label style="flex:1">Payment terms<input type="text" name="payment_terms" value="{{ vendor.payment_terms or '' }}" placeholder="Net 30"></label>
+  </div>
+  <div class="btn-row">
+    <label style="flex:1">ASL status<select name="asl_status">
+      {% for s in ['', 'approved', 'conditional', 'not_approved', 'n/a'] %}<option value="{{ s }}" {{ 'selected' if (vendor.asl_status or '') == s }}>{{ s or '— not set —' }}</option>{% endfor %}</select></label>
+    <label style="flex:1">Recurring schedule<select name="recurring_schedule">
+      {% for s in ['', 'monthly', 'quarterly', 'annual'] %}<option value="{{ s }}" {{ 'selected' if (vendor.recurring_schedule or '') == s }}>{{ s or 'not recurring' }}</option>{% endfor %}</select></label>
+    <label style="flex:1">Recurring tolerance %<input type="text" name="recurring_tolerance_pct" inputmode="decimal" value="{{ vendor.recurring_tolerance_pct or '' }}" placeholder="2.0"></label>
+  </div>
+  <div class="btn-row">
+    <label style="flex:1">Phone (for callbacks after 90 days unchanged)<input type="tel" name="phone" value="{{ vendor.phone or '' }}"></label>
+    <label style="flex:1">Status<select name="status">
+      {% for s in ['active', 'setup', 'blocked'] %}<option value="{{ s }}" {{ 'selected' if (vendor.status or 'active') == s }}>{{ s }}</option>{% endfor %}</select></label>
+  </div>
+
+  <h2>Handling flags</h2>
+  <div class="btn-row" style="gap:20px">
+    <label style="display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="hcp" style="width:24px;height:24px" {{ 'checked' if vendor.hcp }}> Healthcare professional (HCP)</label>
+    <label style="display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="quality_critical" style="width:24px;height:24px" {{ 'checked' if vendor.quality_critical }}> Quality-critical (ASL applies)</label>
+    <label style="display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="fcpa_agent" style="width:24px;height:24px" {{ 'checked' if vendor.fcpa_agent }}> FCPA agent</label>
+    <label style="display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="intercompany" style="width:24px;height:24px" {{ 'checked' if vendor.intercompany }}> Intercompany</label>
+    <label style="display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" name="po_required" style="width:24px;height:24px" {{ 'checked' if vendor.po_required }}> PO required</label>
+  </div>
+
+  {% if mode == 'new' %}
+  <label>Allowed sender domains (separate with semicolons)<input type="text" name="allowed_domains" placeholder="acme.com; billing@acme.com"></label>
+  {% endif %}
+
+  <div class="btn-row">
+    <button class="btn" type="submit">{{ 'Propose change' if dual else 'Save' }}</button>
+    <a class="btn secondary" href="{{ '/vendors' if mode == 'new' else '/vendors/' ~ vendor.id }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

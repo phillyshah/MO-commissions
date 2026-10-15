@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Delegations — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Approvals</p><h1>Delegations</h1>
+  <p class="muted">While a delegation is active, invoices that would come to you go to your delegate instead. They cannot pass them on, and they cannot approve an invoice they handled in AP.</p></div></div>
+{% if error %}<p class="banner bad" role="alert">{{ error }}</p>{% endif %}
+{% if done == 'created' %}<p class="banner good" role="status">Delegation saved.</p>{% endif %}
+{% if done == 'revoked' %}<p class="banner info" role="status">Delegation ended.</p>{% endif %}
+
+<div class="card" style="max-width:560px">
+  <h2 style="margin-top:0">Delegate my approvals</h2>
+  <form method="post" action="/delegations" class="stack">
+    <label>To<select name="to_user" required><option value="">Choose a person…</option>
+      {% for p in people %}<option value="{{ p.id }}">{{ p.display_name }}</option>{% endfor %}</select></label>
+    <label>From<input type="date" name="starts_on" value="{{ today }}" required></label>
+    <label>Until (inclusive)<input type="date" name="ends_on" value="{{ today }}" required></label>
+    <div class="btn-row"><button class="btn" type="submit">Save delegation</button></div>
+  </form>
+</div>
+
+<h2>My delegations</h2>
+{% if mine %}
+<table><thead><tr><th>To</th><th>From</th><th>Until</th><th>Status</th><th></th></tr></thead><tbody>
+{% for d in mine %}
+<tr><td>{{ d.to_name }}</td><td>{{ d.starts_on | day }}</td><td>{{ d.ends_on | day }}</td>
+  <td>{% if d.revoked_at %}<span class="chip state-DIVERTED">ended</span>{% elif d.ends_on < today %}<span class="chip state-DIVERTED">expired</span>
+      {% elif d.starts_on > today %}<span class="chip state-PENDING_APPROVAL">upcoming</span>{% else %}<span class="chip state-APPROVED">active</span>{% endif %}</td>
+  <td>{% if not d.revoked_at and d.ends_on >= today %}<form method="post" action="/delegations/{{ d.id }}/revoke"><button class="link-button" type="submit">End now</button></form>{% endif %}</td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p class="empty">You have not delegated your approvals.</p>{% endif %}
+
+<h2>Delegated to me</h2>
+{% if for_me %}
+<table><thead><tr><th>From</th><th>From</th><th>Until</th></tr></thead><tbody>
+{% for d in for_me %}<tr><td>{{ d.from_name }}</td><td>{{ d.starts_on | day }}</td><td>{{ d.ends_on | day }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p class="empty">Nobody has delegated to you.</p>{% endif %}
+{% endblock %}

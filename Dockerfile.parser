@@ -1,0 +1,46 @@
+# Maxx Accounting Portal — the no-network parser (spec §0, INT-5 as applied to one VPS).
+#
+#   docker build -f Dockerfile.parser -t accounting-parser .
+#
+# What it is: a Unix-socket server (`python -m accounting.parse.service`) that takes bytes in and
+# returns PNG pages + extracted text + hidden-text flags. It never sees the database, the mailbox,
+# the API keys or the internet. docker-compose.accounting.yml runs it with network_mode: none,
+# read_only: true, cap_drop ALL, no-new-privileges, pids_limit, memory and CPU caps, and a tmpfs /tmp.
+#
+# This image is built to tolerate all of that:
+#   - nothing is written outside /tmp and the socket directory (a volume);
+#   - no entrypoint shell, exec-form CMD only;
+#   - same UID 10001 as the web/worker images so the socket on the shared volume is usable.
+#
+# It is a weaker boundary than the VM the original spec asked for; recorded as a known gap, revisited
+# with the dedicated VPS (PLAT-2).
+
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/tmp \
+    TMPDIR=/tmp
+
+RUN groupadd --gid 10001 parser \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin parser
+
+WORKDIR /app
+
+COPY requirements-parser.txt .
+RUN pip install -r requirements-parser.txt
+
+# The service imports accounting.config for the PARSER_* limits, so the package is copied whole;
+# nothing else in it is executed here. Compile now so a read-only rootfs never needs __pycache__.
+COPY --chown=parser:parser accounting/ ./accounting/
+RUN python -m compileall -q accounting
+
+RUN mkdir -p /var/run/parser && chown parser:parser /var/run/parser
+
+ENV PARSER_SOCKET=/var/run/parser/parser.sock
+
+USER parser:parser
+
+CMD ["python", "-m", "accounting.parse.service"]

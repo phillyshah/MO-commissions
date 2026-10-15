@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Quarantine — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Controller</p><h1>Quarantine</h1>
+  <p class="asof">As of {{ as_of | local }} · oldest first · a case waiting two business days is escalated to the CFO</p></div>
+  <div class="btn-row">
+    <a class="btn {{ 'secondary' if show != 'open' }}" href="/quarantine">Open</a>
+    <a class="btn {{ 'secondary' if show == 'open' }}" href="/quarantine?show=decided">Decided</a>
+  </div></div>
+{% set done = request.query_params.get('done') %}
+{% if done == 'released' %}<p class="banner good" role="status">Released. The invoice goes through the full approval chain.</p>{% endif %}
+{% if done == 'rejected' %}<p class="banner info" role="status">Rejected and recorded.</p>{% endif %}
+{% if done == 'reported' %}<p class="banner info" role="status">Reported. The sender's domain is blocked and security has been told.</p>{% endif %}
+
+{% if rows %}
+<table><thead><tr><th>Case</th><th>From</th><th>Vendor</th><th class="num">Amount</th><th>Why</th><th>Waiting</th><th>Status</th></tr></thead><tbody>
+{% for r in rows %}
+<tr class="clickable" data-href="/quarantine/{{ r.id }}">
+  <td><a href="/quarantine/{{ r.id }}">{{ r.portal }}</a>{% if r.escalated %}<br><span class="chip state-QUARANTINED">Escalated to CFO</span>{% endif %}
+      {% if r.release_pending_at %}<br><span class="chip state-AP_REVIEW">Awaiting second person</span>{% endif %}</td>
+  <td>{{ r.original_sender or r.from_addr or '—' }}<br><small>{{ r.subject or '' }}</small></td>
+  <td>{{ r.vendor_name or '—' }}</td>
+  <td class="num">{{ r.gross_cents | money(r.currency) }}</td>
+  <td>{% for t in r.trigger_labels %}<span class="chip tag">{{ t }}</span> {% endfor %}</td>
+  <td>{{ r.opened_at | age }}</td>
+  <td><span class="chip state-{{ 'QUARANTINED' if r.state == 'open' else ('APPROVED' if r.state == 'released' else 'FRAUD') }}">{{ r.state }}</span></td>
+</tr>
+{% endfor %}</tbody></table>
+{% else %}<p class="empty">{{ 'Nothing is in quarantine.' if show == 'open' else 'No decided cases yet.' }}</p>{% endif %}
+{% endblock %}

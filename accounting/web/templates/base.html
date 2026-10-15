@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ APP_NAME }}{% endblock %}</title>
+<link rel="stylesheet" href="/static/portal.css">
+</head>
+<body>
+{% block body %}
+{% set nav_counts = nav_counts_for(user) if user else {} %}
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Home"><img src="/static/maxx-orthopedics-logo.webp" alt="Maxx Orthopedics — A Meril Company"></a>
+    <nav aria-label="Main">
+      {% set path = request.url.path %}
+      <a href="/" class="{{ 'active' if path == '/' }}">Home</a>
+      {% if user %}
+        {% if user.has('clerk','supervisor','controller','admin','auditor') %}
+        <a href="/invoices" class="{{ 'active' if path.startswith('/invoices') and not path.startswith('/invoices/approved') }}">Invoices</a>
+        <a href="/invoices/approved" class="{{ 'active' if path.startswith('/invoices/approved') }}">Approved queue</a>
+        <a href="/vendors" class="{{ 'active' if path.startswith('/vendors') }}">Vendors</a>
+        <a href="/upload" class="{{ 'active' if path.startswith('/upload') }}">Upload an invoice</a>
+        {% endif %}
+        {% if user.has('approver','cfo','compliance','controller','supervisor','admin') %}
+        <a href="/approvals" class="{{ 'active' if path.startswith('/approvals') }}">My approvals{% if nav_counts and nav_counts.approvals %}<span class="badge">{{ nav_counts.approvals }}</span>{% endif %}</a>
+        {% endif %}
+        {% if user.has('controller','cfo','admin') %}
+        <a href="/quarantine" class="{{ 'active' if path.startswith('/quarantine') }}">Quarantine{% if nav_counts and nav_counts.quarantine %}<span class="badge">{{ nav_counts.quarantine }}</span>{% endif %}</a>
+        {% endif %}
+        {% if user.has('controller','supervisor','cfo','admin','auditor') %}
+        <a href="/reports" class="{{ 'active' if path.startswith('/reports') }}">Reports</a>
+        {% endif %}
+        {% if user.has('admin','controller') %}
+        <a href="/admin" class="{{ 'active' if path.startswith('/admin') }}">Admin</a>
+        {% endif %}
+        <a href="/passkeys" class="{{ 'active' if path.startswith('/passkeys') }}">My passkeys</a>
+      {% endif %}
+    </nav>
+    <div class="sidebar-foot">
+      {% if user %}
+      <div><strong>{{ user.display_name }}</strong><small>{{ user.email }}</small></div>
+      <form method="post" action="/auth/signout"><button class="link-button" type="submit">Sign out</button></form>
+      {% endif %}
+      <small>{{ APP_NAME }} v{{ APP_VERSION }}</small>
+    </div>
+  </aside>
+  <main class="workspace">
+    {% if nav_counts and nav_counts.break_glass %}
+    <p class="banner bad" role="alert"><strong>BREAK-GLASS MODE IS ON.</strong> Normal controls are relaxed and every action is being recorded for review. The CFO or an administrator turns this off under Admin.</p>
+    {% endif %}
+    {% block content %}{% endblock %}
+    <p class="foot"><span>{{ CONFIDENTIAL_FOOTER }}</span><span>Portal emails never contain approval buttons or invoice links. If one does, forward it to security.</span></p>
+  </main>
+</div>
+{% endblock %}
+<script src="/static/portal.js"></script>
+</body>
+</html>

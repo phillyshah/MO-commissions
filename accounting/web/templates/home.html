@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Home — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Accounting</p><h1>Good {{ tiles.greeting }}, {{ user.display_name.split(' ')[0] }}</h1>
+<p class="muted">As of {{ tiles.as_of | local }}</p></div></div>
+
+{% if tiles.banners %}{% for b in tiles.banners %}<p class="banner {{ b.kind }}">{{ b.text }}</p>{% endfor %}{% endif %}
+
+<h2>Your work</h2>
+<div class="cards">
+  {% for t in tiles.work %}
+  <a class="card tile" href="{{ t.href }}"><h3>{{ t.title }}</h3>
+    <span class="count {{ t.tone }}">{{ t.count }}</span><p>{{ t.text }}</p></a>
+  {% endfor %}
+  {% if not tiles.work %}<p class="empty">Nothing is waiting on you.</p>{% endif %}
+</div>
+
+<h2>Systems</h2>
+<div class="cards">
+  {% for t in tiles.systems %}
+  <a class="card tile" href="{{ t.href }}" {% if t.external %}rel="noopener"{% endif %}><h3>{{ t.title }}</h3><p>{{ t.text }}</p></a>
+  {% endfor %}
+</div>
+{% endblock %}

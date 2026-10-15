@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Invoices — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Accounts payable</p><h1>Invoices</h1><p class="asof">As of {{ as_of | local }} · Oldest first</p></div>
+<div class="btn-row"><a class="btn secondary" href="/upload">Upload an invoice</a><a class="btn secondary" href="/invoices/approved">Approved queue</a></div></div>
+
+<form method="get" action="/invoices" class="card" style="margin-bottom:18px">
+  <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+    <label>Status <select name="state"><option value="">All open</option>{% for s in states %}<option value="{{ s }}" {{ 'selected' if s == state }}>{{ s.replace('_',' ') }}</option>{% endfor %}</select></label>
+    <label>Vendor <input type="text" name="vendor" value="{{ vendor }}" placeholder="Any part of the name"></label>
+    <label>Search <input type="text" name="q" value="{{ q }}" placeholder="Invoice #, PO #, AP-000123"></label>
+    <label>&nbsp;<button class="btn" type="submit">Show</button></label>
+  </div>
+</form>
+
+{% if rows %}
+<table><thead><tr><th>Portal #</th><th>Status</th><th>Vendor</th><th>Invoice #</th><th>Received</th><th>Age</th><th class="num">Gross</th></tr></thead><tbody>
+{% for r in rows %}
+<tr class="clickable" data-href="/invoices/{{ r.id }}">
+  <td><a href="/invoices/{{ r.id }}">AP-{{ '%06d' % r.portal_number }}</a></td>
+  <td><span class="chip state-{{ r.state }}">{{ r.state.replace('_',' ') }}</span>{% for t in r.tags %} <span class="chip tag {{ t }}">{{ t.replace('_',' ') }}</span>{% endfor %}</td>
+  <td>{{ r.vendor or '—' }}</td><td>{{ r.invoice_number or '—' }}</td><td>{{ r.received_at | local }}</td><td>{{ r.received_at | age }}</td>
+  <td class="num">{{ r.gross_cents | money(r.currency) }}</td>
+</tr>
+{% endfor %}
+</tbody></table>
+<p class="caption">{{ rows | length }} invoice{{ '' if rows | length == 1 else 's' }} shown{% if rows | length == 500 %} (the first 500 — narrow the search to see the rest){% endif %}.</p>
+{% else %}<p class="empty">No invoices match.</p>{% endif %}
+{% endblock %}

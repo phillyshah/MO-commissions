@@ -1,0 +1,53 @@
+# Maxx Accounting Portal — web and worker images from one Dockerfile.
+#
+#   docker build -f Dockerfile.accounting --target web    -t accounting-web    .
+#   docker build -f Dockerfile.accounting --target worker -t accounting-worker .
+#
+# Both stages share `base`. The web stage is last, so a build with no --target gives the web image.
+# Bookworm is pinned for the same reason as usage/Dockerfile: Debian package names move between
+# releases, and a floating base breaks the apt step one morning for no code change.
+#
+# UID 10001 is shared by every image in docker-compose.accounting.yml. The parser's Unix socket lives
+# on a volume mounted into web, worker and parser; one UID across the three is what makes it readable
+# without widening the socket's permissions.
+
+FROM python:3.12-slim-bookworm AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN groupadd --gid 10001 portal \
+    && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin portal
+
+WORKDIR /app
+
+COPY requirements-accounting.txt .
+RUN pip install -r requirements-accounting.txt
+
+COPY --chown=portal:portal accounting/ ./accounting/
+
+# Writable paths the app may use when the local store backend is selected or the parser socket is
+# mounted here. Both are volumes in compose; the mkdir keeps a bare `docker run` working too.
+RUN mkdir -p /var/lib/accounting/store /var/run/parser \
+    && chown -R portal:portal /var/lib/accounting /var/run/parser
+
+ENV ACCOUNTING_STORE_DIR=/var/lib/accounting/store \
+    PARSER_SOCKET=/var/run/parser/parser.sock
+
+USER portal:portal
+
+# ---------------------------------------------------------------------------------------------
+FROM base AS worker
+# APScheduler process: IMAP poll, pipeline, notifications, reminders, anchors, session sweep.
+CMD ["python", "-m", "accounting.worker"]
+
+# ---------------------------------------------------------------------------------------------
+FROM base AS web
+EXPOSE 8000
+# --proxy-headers: Traefik terminates TLS; the app needs X-Forwarded-Proto to mark cookies Secure
+# correctly and to build the ForwardAuth redirect. --forwarded-allow-ips="*" is acceptable because
+# port 8000 is reachable only from the `proxy` Docker network, never from the host or the internet.
+CMD ["uvicorn", "accounting.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

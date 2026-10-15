@@ -1,0 +1,172 @@
+# Maxx Accounting Portal — Stage 1 stack for the shared Hostinger VPS (72.62.174.193).
+#
+#   docker compose -f docker-compose.accounting.yml up -d --build      (or: make accounting-deploy)
+#
+# Mirrors /root/usage/docker-compose.yml and maxxdash's deployment/docker/dashboard/docker-compose.yml:
+# every public service joins the EXISTING external `proxy` network and is routed by Traefik labels on
+# the container itself — no /opt/traefik/dynamic entry needed. The `letsencrypt` certresolver and the
+# `websecure` entrypoint are the names those two stacks already use on this box.
+#
+# Secrets come from .env.accounting (gitignored; template is .env.accounting.example). Compose reads
+# it through env_file, so nothing is baked into an image layer.
+#
+# Four services:
+#   accounting-web        FastAPI, sign-in, approvals, admin, the ForwardAuth endpoint (/auth/verify)
+#   accounting-worker     same image, `python -m accounting.worker` — IMAP poll, pipeline, mail, anchors
+#   accounting-parser     NO NETWORK. Rasterizes attachments over a Unix socket on the shared volume
+#   commissions-generator the existing Flask statement generator (app.py), moved behind Traefik
+#
+# DNS that must exist before `up` (Traefik's ACME challenge needs each name to resolve to this box):
+#   accounting.90ten.life, commissions.accounting.90ten.life, mo-commissions.90ten.life (the 301).
+
+services:
+
+  accounting-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.accounting
+      target: web
+    image: accounting-web:latest
+    env_file: .env.accounting
+    environment:
+      # Fixed by this file, not by .env.accounting, because they name mount points below.
+      ACCOUNTING_STORE_DIR: /var/lib/accounting/store
+      PARSER_SOCKET: /var/run/parser/parser.sock
+    volumes:
+      - accounting-store:/var/lib/accounting/store
+      - parser-sock:/var/run/parser
+    networks: [proxy]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.accounting.rule=Host(`accounting.90ten.life`)"
+      - "traefik.http.routers.accounting.entrypoints=websecure"
+      - "traefik.http.routers.accounting.tls.certresolver=letsencrypt"
+      - "traefik.http.services.accounting.loadbalancer.server.port=8000"
+      # ForwardAuth middleware for the sibling apps (spec §3). Traefik calls /auth/verify with the
+      # browser's cookies and X-Forwarded-*; 200 lets the request through and copies the two headers
+      # to the upstream, anything else is returned to the browser as-is.
+      - "traefik.http.middlewares.ap-auth.forwardauth.address=http://accounting-web:8000/auth/verify"
+      - "traefik.http.middlewares.ap-auth.forwardauth.authResponseHeaders=X-Portal-User,X-Portal-User-Id"
+      - "traefik.http.middlewares.ap-auth.forwardauth.trustForwardHeader=true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      - accounting-parser
+    restart: unless-stopped
+
+  accounting-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.accounting
+      target: worker
+    image: accounting-worker:latest
+    env_file: .env.accounting
+    environment:
+      ACCOUNTING_STORE_DIR: /var/lib/accounting/store
+      PARSER_SOCKET: /var/run/parser/parser.sock
+    volumes:
+      - accounting-store:/var/lib/accounting/store
+      - parser-sock:/var/run/parser
+    # Needs outbound internet (IMAP, SMTP, Anthropic, Supabase, AWS). Nothing inbound: Traefik is told
+    # to ignore it explicitly in case exposedByDefault is on.
+    networks: [proxy]
+    labels:
+      - "traefik.enable=false"
+    depends_on:
+      - accounting-parser
+    restart: unless-stopped
+
+  accounting-parser:
+    build:
+      context: .
+      dockerfile: Dockerfile.parser
+    image: accounting-parser:latest
+    # No env_file on purpose: this container must never hold the mailbox password, the DB URL or an
+    # API key. It gets only the limits it enforces.
+    environment:
+      PARSER_SOCKET: /var/run/parser/parser.sock
+      PARSER_MAX_PAGES: ${PARSER_MAX_PAGES:-50}
+      PARSER_MAX_BYTES: ${PARSER_MAX_BYTES:-104857600}
+      PARSER_CPU_SECONDS: ${PARSER_CPU_SECONDS:-60}
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - parser-sock:/var/run/parser
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 1g
+    cpus: 1.0
+    restart: unless-stopped
+
+  commissions-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.commissions
+    image: commissions-generator:latest
+    volumes:
+      # app.py writes job folders under ./outputs and ./uploads; keep them off the image layer.
+      - commissions-outputs:/app/outputs
+      - commissions-uploads:/app/uploads
+    networks: [proxy]
+    labels:
+      - "traefik.enable=true"
+      # New name, behind the portal's sign-in.
+      - "traefik.http.routers.commissions.rule=Host(`commissions.accounting.90ten.life`)"
+      - "traefik.http.routers.commissions.entrypoints=websecure"
+      - "traefik.http.routers.commissions.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.commissions.middlewares=ap-auth@docker"
+      - "traefik.http.services.commissions.loadbalancer.server.port=5001"
+      # Old name: 301 to the new one (replaces nginx-commissions.conf). Still needs its own cert.
+      - "traefik.http.routers.commissions-old.rule=Host(`mo-commissions.90ten.life`)"
+      - "traefik.http.routers.commissions-old.entrypoints=websecure"
+      - "traefik.http.routers.commissions-old.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.commissions-old.middlewares=commissions-redirect@docker"
+      - "traefik.http.middlewares.commissions-redirect.redirectregex.regex=^https?://mo-commissions\\.90ten\\.life/(.*)"
+      - "traefik.http.middlewares.commissions-redirect.redirectregex.replacement=https://commissions.accounting.90ten.life/$${1}"
+      - "traefik.http.middlewares.commissions-redirect.redirectregex.permanent=true"
+    restart: unless-stopped
+
+# -----------------------------------------------------------------------------------------------
+# usage.90ten.life behind the same sign-in (spec §3, §9). This is NOT part of this file — it goes in
+# /root/usage/docker-compose.yml, replacing the labels on its `labels-api` service. Shown here so the
+# two stacks are changed the same way. Traefik resolves `ap-auth@docker` across compose projects
+# because both containers are on the `proxy` network and the middleware is declared on accounting-web.
+#
+#   labels:
+#     - "traefik.enable=true"
+#     - "traefik.http.routers.labels.rule=Host(`usage.accounting.90ten.life`)"
+#     - "traefik.http.routers.labels.entrypoints=websecure"
+#     - "traefik.http.routers.labels.tls.certresolver=letsencrypt"
+#     - "traefik.http.routers.labels.middlewares=ap-auth@docker"
+#     - "traefik.http.services.labels.loadbalancer.server.port=8000"
+#     # 301 from the old name
+#     - "traefik.http.routers.labels-old.rule=Host(`usage.90ten.life`)"
+#     - "traefik.http.routers.labels-old.entrypoints=websecure"
+#     - "traefik.http.routers.labels-old.tls.certresolver=letsencrypt"
+#     - "traefik.http.routers.labels-old.middlewares=usage-redirect@docker"
+#     - "traefik.http.middlewares.usage-redirect.redirectregex.regex=^https?://usage\\.90ten\\.life/(.*)"
+#     - "traefik.http.middlewares.usage-redirect.redirectregex.replacement=https://usage.accounting.90ten.life/$${1}"
+#     - "traefik.http.middlewares.usage-redirect.redirectregex.permanent=true"
+#
+# Do this only AFTER the portal is up and `curl -I https://accounting.90ten.life/auth/verify` answers
+# 401 — a middleware that points at a container that is not running makes Traefik return 500 for
+# every usage request.
+# -----------------------------------------------------------------------------------------------
+
+volumes:
+  accounting-store:      # originals + renders when ACCOUNTING_STORE_BACKEND=local (testing only)
+  parser-sock:           # the parser's Unix socket, shared by web, worker and parser
+  commissions-outputs:
+  commissions-uploads:
+
+networks:
+  proxy:
+    external: true

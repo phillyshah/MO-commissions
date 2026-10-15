@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Vendors — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div><p class="eyebrow">Vendor master</p><h1>Vendors</h1>
+    <p class="muted">{{ vendors|length }} shown. Portal records only — SAP stays the system of record for bank data.</p></div>
+  {% if user.has('clerk','supervisor','admin') %}
+  <div class="btn-row">
+    <a class="btn" href="/vendors/new">Add a vendor</a>
+    <a class="btn secondary" href="/vendors/import">Import CSV</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if request.query_params.get('proposed') %}<p class="banner info">Your change was recorded and is waiting for a second person to approve it.</p>{% endif %}
+{% if setup_n %}<p class="banner warn"><a href="/vendors/setup">{{ setup_n }} invoice{{ '' if setup_n == 1 else 's' }} waiting for a vendor to be set up.</a></p>{% endif %}
+{% if pending %}<p class="banner info">{{ pending }} vendor change{{ '' if pending == 1 else 's' }} awaiting a second approval. Open a vendor to review.</p>{% endif %}
+
+<form method="get" class="btn-row" style="margin-bottom:16px">
+  <label style="flex:1;min-width:220px">Search<input type="text" name="q" value="{{ q }}" placeholder="Name or SAP number"></label>
+  <label>Status<select name="status">
+    <option value="" {{ 'selected' if not status }}>All</option>
+    <option value="active" {{ 'selected' if status == 'active' }}>Active</option>
+    <option value="setup" {{ 'selected' if status == 'setup' }}>Being set up</option>
+    <option value="blocked" {{ 'selected' if status == 'blocked' }}>Blocked</option>
+  </select></label>
+  <button class="btn secondary" type="submit" style="align-self:end">Filter</button>
+</form>
+
+{% if vendors %}
+<table>
+  <thead><tr><th>Vendor</th><th>SAP no.</th><th>Country</th><th>Flags</th><th>Bank (last 4)</th><th class="num">Invoices</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for v in vendors %}
+  <tr class="clickable">
+    <td><a href="/vendors/{{ v.id }}"><strong>{{ v.legal_name }}</strong></a></td>
+    <td>{{ v.sap_vendor_number or '—' }}</td>
+    <td>{{ v.country or '—' }}</td>
+    <td>
+      {% if v.hcp %}<span class="chip tag hcp">HCP</span>{% endif %}
+      {% if v.quality_critical %}<span class="chip tag">Quality</span>{% endif %}
+      {% if v.fcpa_agent %}<span class="chip tag">FCPA agent</span>{% endif %}
+      {% if v.intercompany %}<span class="chip tag">Intercompany</span>{% endif %}
+      {% if v.recurring_schedule %}<span class="chip tag">Recurring</span>{% endif %}
+    </td>
+    <td>{{ ('••••' ~ v.last4) if v.last4 else '—' }}</td>
+    <td class="num">{{ v.invoice_count }}</td>
+    <td><span class="chip state-{{ 'APPROVED' if v.status == 'active' else ('QUARANTINED' if v.status == 'blocked' else 'VENDOR_SETUP') }}">{{ v.status }}</span></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No vendors match.</p>
+{% endif %}
+{% endblock %}

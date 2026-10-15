@@ -1,0 +1,9 @@
+{% set p = request.url.path %}
+<nav class="btn-row" aria-label="Admin sections" style="margin-bottom:18px">
+  <a class="btn {{ 'secondary' if p != '/admin' }}" href="/admin">Users</a>
+  <a class="btn {{ 'secondary' if not p.startswith('/admin/config') }}" href="/admin/config">Settings</a>
+  <a class="btn {{ 'secondary' if not p.startswith('/admin/matrix') }}" href="/admin/matrix">Approval matrix</a>
+  <a class="btn {{ 'secondary' if not p.startswith('/admin/delegations') }}" href="/admin/delegations">Delegations</a>
+  <a class="btn {{ 'secondary' if not p.startswith('/admin/security') }}" href="/admin/security">Security events</a>
+  <a class="btn {{ 'secondary' if not p.startswith('/admin/grants') }}" href="/admin/grants">Daily grants report</a>
+</nav>

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Admin — Delegations — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Admin</p><h1>Delegations</h1><p class="asof">As of {{ as_of | local }}</p></div></div>
+{% include "admin/_nav.html" %}
+<p class="muted">Who is covering for whom. People set their own under My approvals; this is the full list.</p>
+{% if rows %}<table><thead><tr><th>From</th><th>To</th><th>Starts</th><th>Ends</th><th>Status</th></tr></thead><tbody>
+{% for d in rows %}<tr><td>{{ d.from_name }}</td><td>{{ d.to_name }}</td><td>{{ d.starts_on | day }}</td><td>{{ d.ends_on | day }}</td>
+<td>{% if d.revoked_at %}<span class="chip state-VOID">revoked</span>{% elif d.ends_on < today %}<span class="chip state-DIVERTED">ended</span>{% elif d.starts_on > today %}<span class="chip state-RECEIVED">upcoming</span>{% else %}<span class="chip state-APPROVED">active</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No delegations.</p>{% endif %}
+{% endblock %}

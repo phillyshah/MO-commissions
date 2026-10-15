@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Sign in — {{ APP_NAME }}{% endblock %}
+{% block body %}
+<main class="login-shell"><section class="login-card">
+  <img src="/static/maxx-orthopedics-logo.webp" alt="Maxx Orthopedics — A Meril Company" width="310" height="83">
+  <p class="eyebrow">{{ APP_NAME }}</p>
+  <h1>Welcome back</h1>
+  {% if mode == 'signin' %}
+  <p class="login-copy">Sign in with your dashboard email and password. A fresh sign-in is needed each time you open the portal.</p>
+  <form method="post" action="/auth/session">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Email<input name="email" type="email" autocomplete="email" required autofocus></label>
+    <label>Password<div class="password-field"><input id="pw" name="password" type="password" autocomplete="current-password" required>
+      <button type="button" class="password-toggle" data-toggle-password="pw" aria-label="Show password" aria-pressed="false">Show</button></div></label>
+    {% if error %}<p role="alert" class="form-error">{{ error }}</p>{% endif %}
+    <button type="submit">Sign in</button>
+  </form>
+  <form method="get" action="/login/reset"><button type="submit" class="link-button">Forgot password?</button></form>
+  {% else %}
+  <p class="login-copy">Enter your email and the dashboard will send a reset link.</p>
+  <form method="post" action="/auth/recover">
+    <label>Email<input name="email" type="email" autocomplete="email" required></label>
+    {% if note %}<p role="status" class="form-note">{{ note }}</p>{% endif %}
+    {% if error %}<p role="alert" class="form-error">{{ error }}</p>{% endif %}
+    <button type="submit">Send reset link</button>
+  </form>
+  <form method="get" action="/login"><button type="submit" class="link-button">Back to sign in</button></form>
+  {% endif %}
+  <p class="caption" style="margin-top:24px">{{ CONFIDENTIAL_FOOTER }}</p>
+</section></main>
+{% endblock %}

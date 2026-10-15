@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Admin — Settings — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="topbar"><div><p class="eyebrow">Admin</p><h1>Settings</h1><p class="asof">As of {{ as_of | local }}</p></div></div>
+{% include "admin/_nav.html" %}
+{% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+<p class="banner {{ 'info' if dual_control else 'warn' }}">{% if dual_control %}Dual control is on: a change proposed by one person must be approved by another and takes effect the next business day.{% else %}Dual control is off: an administrator's proposal takes effect at once. Turn it on by setting <code>dual_control_enabled</code> to <code>true</code>.{% endif %}</p>
+
+<h2>In effect now</h2>
+{% if current %}<table><thead><tr><th>Setting</th><th>Value</th><th>Since</th></tr></thead><tbody>
+{% for c in current %}<tr><td>{{ c.key }}</td><td>{{ c.value | tojson }}</td><td>{{ c.effective_from | local }}</td></tr>{% endfor %}</tbody></table>
+{% else %}<p class="empty">No settings have been approved yet; the portal is running on its built-in defaults.</p>{% endif %}
+
+<h2>Propose a change</h2>
+<form method="post" action="/admin/config/propose" class="card stack" style="max-width:560px">
+  <label>Setting <input type="text" name="key" list="config-keys" required placeholder="step_up_amount_cents"><datalist id="config-keys">{% for k in keys %}<option value="{{ k }}">{% endfor %}</datalist></label>
+  <label>Value <input type="text" name="value" required placeholder="2500000, true, or &quot;text&quot;"></label>
+  <label>Note <input type="text" name="note" placeholder="Why"></label>
+  <button class="btn" type="submit">Propose</button>
+</form>
+
+<h2>History</h2>
+{% if rows %}<table><thead><tr><th>Setting</th><th>Value</th><th>Proposed</th><th>Approved</th><th>Effective</th><th></th></tr></thead><tbody>
+{% for r in rows %}<tr><td>{{ r.key }}</td><td>{{ r.value | tojson }}{% if r.note %}<br><small>{{ r.note }}</small>{% endif %}</td><td>{{ r.proposer }}<br><small>{{ r.proposed_at | local }}</small></td>
+<td>{% if r.approved_at %}{{ r.approver }}<br><small>{{ r.approved_at | local }}</small>{% else %}<span class="chip state-AP_REVIEW">waiting</span>{% endif %}</td><td>{{ r.effective_from | local }}</td>
+<td>{% if not r.approved_at %}<form method="post" action="/admin/config/{{ r.id }}/approve"><button class="btn approve" type="submit" {{ 'disabled' if r.proposed_by == user.id }} title="">{{ 'You proposed this' if r.proposed_by == user.id else 'Approve' }}</button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table>{% else %}<p class="empty">No changes yet.</p>{% endif %}
+{% endblock %}
